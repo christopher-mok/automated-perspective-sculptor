@@ -76,6 +76,10 @@ class ControlPoint(nn.Module):
         device: str = "cpu",
     ) -> None:
         super().__init__()
+        # Linked by Patch after construction. These are plain references, not
+        # registered submodules, so the ModuleList below remains the owner.
+        object.__setattr__(self, "next_control_point", None)
+        object.__setattr__(self, "prev_control_point", None)
         self.x               = nn.Parameter(torch.tensor(x,               dtype=torch.float32, device=device))
         self.y               = nn.Parameter(torch.tensor(y,               dtype=torch.float32, device=device))
         self.z               = nn.Parameter(torch.tensor(z,               dtype=torch.float32, device=device))
@@ -121,6 +125,7 @@ class Patch(nn.Module):
     """
 
     N_CONTROL_POINTS: int = 5
+    DEFAULT_THICKNESS: float = 0.035
 
     def __init__(
         self,
@@ -136,10 +141,18 @@ class Patch(nn.Module):
             raise ValueError(f"Patch requires exactly {self.N_CONTROL_POINTS} control points, got {len(control_points)}")
 
         self.control_points = nn.ModuleList(control_points)
+        self._link_control_points()
         self.center = nn.Parameter(torch.tensor(center, dtype=torch.float32, device=device))
         self.theta  = nn.Parameter(torch.tensor(theta,  dtype=torch.float32, device=device))
         self.albedo = nn.Parameter(torch.tensor(albedo, dtype=torch.float32, device=device))
         self.label  = label
+
+    def _link_control_points(self) -> None:
+        """Attach next/previous links for the closed control-point chain."""
+        n = len(self.control_points)
+        for i, cp in enumerate(self.control_points):
+            object.__setattr__(cp, "prev_control_point", self.control_points[(i - 1) % n])
+            object.__setattr__(cp, "next_control_point", self.control_points[(i + 1) % n])
 
     # ------------------------------------------------------------------
     # Transform helpers
@@ -205,6 +218,39 @@ class Patch(nn.Module):
         ones = torch.ones(len(pts), 1, dtype=pts.dtype, device=pts.device)
         return torch.cat([pts, ones], dim=1)             # (V, 4)
 
+    def extruded_mesh_world(
+        self,
+        n_per_segment: int = 20,
+        thickness: float = DEFAULT_THICKNESS,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return a fixed-thickness extrusion of the spline as world vertices/faces."""
+        local = self.sample_spline_local(n_per_segment)
+        N = len(local)
+        half = thickness * 0.5
+        offset = torch.tensor([0.0, 0.0, half], dtype=local.dtype, device=local.device)
+
+        front = self.local_to_world(local + offset)
+        back = self.local_to_world(local - offset)
+        front_centroid = front.mean(dim=0, keepdim=True)
+        back_centroid = back.mean(dim=0, keepdim=True)
+        verts = torch.cat([front_centroid, front, back_centroid, back], dim=0)
+
+        back_center = N + 1
+        back_start = N + 2
+        faces: list[list[int]] = []
+        for i in range(N):
+            j = (i + 1) % N
+            fi = i + 1
+            fj = j + 1
+            bi = back_start + i
+            bj = back_start + j
+            faces.append([0, fi, fj])
+            faces.append([back_center, bj, bi])
+            faces.append([fi, bi, bj])
+            faces.append([fi, bj, fj])
+
+        return verts, torch.tensor(faces, dtype=torch.int32, device=self.center.device)
+
     def triangle_faces(self, n_per_segment: int = 20) -> torch.Tensor:
         """(F, 3) int32 triangle indices for a fan mesh from the centroid.
 
@@ -225,26 +271,17 @@ class Patch(nn.Module):
     # ------------------------------------------------------------------
 
     def to_mesh(self, n_per_segment: int = 20) -> "Mesh":
-        """Fan-triangulated scene.Mesh for the 3D viewport.
-
-        The centroid is vertex 0; spline samples are vertices 1..V.
-        """
+        """Extruded scene.Mesh for the 3D viewport."""
         from scene.scene import Mesh
 
         with torch.no_grad():
-            pts = self.sample_spline_world(n_per_segment).cpu().numpy()  # (V, 3)
-
-        V        = len(pts)
-        centroid = pts.mean(axis=0, keepdims=True)                        # (1, 3)
-        vertices = np.vstack([centroid, pts])                             # (V+1, 3)
-        faces    = np.array(
-            [[0, i + 1, (i + 1) % V + 1] for i in range(V)],
-            dtype=np.int32,
-        )
+            verts, faces = self.extruded_mesh_world(n_per_segment)
+            vertices = verts.cpu().numpy()
+            faces_np = faces.cpu().numpy()
 
         rgb   = self.albedo.detach().cpu().clamp(0.0, 1.0).numpy()
         color = (float(rgb[0]), float(rgb[1]), float(rgb[2]))
-        return Mesh(vertices, faces, color=color, label=self.label)
+        return Mesh(vertices, faces_np, color=color, label=self.label)
 
     # ------------------------------------------------------------------
     # Constraints

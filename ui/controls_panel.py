@@ -252,6 +252,32 @@ class OptimizationSection(QGroupBox):
         layout.addLayout(lr_row)
         layout.addWidget(self._lr_slider)
 
+        # Step count
+        self._steps_slider, self._steps_lbl = _labeled_slider(1, 1000, 200, "{}")
+        self._steps_slider.valueChanged.connect(
+            lambda v: self._steps_lbl.setText(str(v))
+        )
+        steps_row = QHBoxLayout()
+        steps_lbl = QLabel("Steps")
+        steps_lbl.setStyleSheet(_LABEL_STYLE)
+        steps_row.addWidget(steps_lbl)
+        steps_row.addStretch()
+        steps_row.addWidget(self._steps_lbl)
+        layout.addLayout(steps_row)
+        layout.addWidget(self._steps_slider)
+
+        # Discrete colour palette
+        palette_lbl = QLabel("Palette")
+        palette_lbl.setStyleSheet(_LABEL_STYLE)
+        self._palette_input = QLineEdit()
+        self._palette_input.setText("#111111, #f5f5f5")
+        self._palette_input.setPlaceholderText("#111111, #f4d35e, #2f6690")
+        self._palette_input.setStyleSheet(
+            "color: #ddd; background: #2a2a2a; border: 1px solid #444; border-radius: 3px; padding: 4px;"
+        )
+        layout.addWidget(palette_lbl)
+        layout.addWidget(self._palette_input)
+
         # Run button
         self._run_btn = QPushButton("Run optimization")
         self._run_btn.setStyleSheet(
@@ -279,12 +305,24 @@ class OptimizationSection(QGroupBox):
         return _slider_to_lr(self._lr_slider.value())
 
     @property
+    def n_steps(self) -> int:
+        return self._steps_slider.value()
+
+    @property
+    def palette(self) -> str:
+        return self._palette_input.text()
+
+    @property
     def loss_type(self) -> str:
         return self._loss_combo.currentText()
 
     @property
     def sds_prompt(self) -> str:
         return self._sds_input.text()
+
+    def set_running(self, running: bool) -> None:
+        self._run_btn.setEnabled(not running)
+        self._run_btn.setText("Optimizing..." if running else "Run optimization")
 
 
 # ---------------------------------------------------------------------------

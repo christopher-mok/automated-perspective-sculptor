@@ -123,6 +123,8 @@ class MainWindow(QMainWindow):
         # Patch state
         self._patches: list = []
         self._target1_img: np.ndarray | None = None  # uint8 (H,W,3) for SAM
+        self._target2_img: np.ndarray | None = None
+        self._worker = None
 
         # Build panels
         self._image_panel   = ImagePanel(self)
@@ -146,6 +148,7 @@ class MainWindow(QMainWindow):
         self._image_panel.view1_loaded.connect(self._on_view1_loaded)
         self._image_panel.view2_loaded.connect(self._on_view2_loaded)
         self._controls.patches.initialize_requested.connect(self._on_initialize)
+        self._controls.optimization.run_requested.connect(self._on_run_optimization)
 
     # ------------------------------------------------------------------
     # Signal handlers
@@ -157,6 +160,8 @@ class MainWindow(QMainWindow):
         print(f"[View 1 target] loaded: {path}")
 
     def _on_view2_loaded(self, path: str) -> None:
+        from PIL import Image
+        self._target2_img = np.array(Image.open(path).convert("RGB"))
         print(f"[View 2 target] loaded: {path}")
 
     def _on_initialize(self, n_patches: int, mode: str) -> None:
@@ -182,3 +187,72 @@ class MainWindow(QMainWindow):
 
         self._viewport.set_patches(self._patches)
         print(f"[Initialize patches] {len(self._patches)} patches ({mode}, {device})")
+
+    def _on_run_optimization(self) -> None:
+        if not self._patches:
+            QMessageBox.warning(self, "Run optimization", "Initialize patches first.")
+            return
+        if self._target1_img is None:
+            QMessageBox.warning(self, "Run optimization", "Load a View 1 target image first.")
+            return
+        if self._worker is not None and self._worker.isRunning():
+            return
+
+        from ui.worker import OptimizationWorker
+
+        opt = self._controls.optimization
+        view2_loss = "sds" if "SDS" in opt.loss_type else "mse"
+        if view2_loss == "sds" and not opt.sds_prompt.strip():
+            QMessageBox.warning(self, "Run optimization", "Enter an SDS prompt first.")
+            return
+
+        self._worker = OptimizationWorker(
+            patches=self._patches,
+            cameras=self._scene.cameras,
+            target1=self._target1_img,
+            target2=self._target2_img,
+            palette=opt.palette,
+            lr=opt.learning_rate,
+            n_steps=opt.n_steps,
+            view2_loss=view2_loss,
+            sds_prompt=opt.sds_prompt,
+            device=self._controls.patches.device,
+            parent=self,
+        )
+        self._worker.step_completed.connect(self._on_optimization_step)
+        self._worker.failed.connect(self._on_optimization_failed)
+        self._worker.optimization_finished.connect(self._on_optimization_finished)
+
+        self._controls.optimization.set_running(True)
+        self._controls.export.set_enabled(False)
+        self._worker.start()
+        print(
+            f"[Optimization] started: steps={opt.n_steps}, lr={opt.learning_rate:.3e}, "
+            f"palette={opt.palette!r}"
+        )
+
+    def _on_optimization_step(self, step_idx: int, metrics: object, meshes: object) -> None:
+        self._viewport.set_meshes(meshes)
+        if step_idx == 1 or step_idx % 10 == 0:
+            loss = metrics.get("loss", 0.0) if isinstance(metrics, dict) else 0.0
+            print(f"[Optimization] step={step_idx}, loss={loss:.6f}")
+
+    def _on_optimization_failed(self, message: str) -> None:
+        self._controls.optimization.set_running(False)
+        QMessageBox.warning(self, "Optimization failed", message)
+        print(f"[Optimization] failed: {message}")
+
+    def _on_optimization_finished(self, metrics: object) -> None:
+        self._controls.optimization.set_running(False)
+        self._controls.export.set_enabled(True)
+        loss = metrics.get("loss", None) if isinstance(metrics, dict) else None
+        if loss is None:
+            print("[Optimization] finished")
+        else:
+            print(f"[Optimization] finished: loss={loss:.6f}")
+
+    def closeEvent(self, event) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.request_stop()
+            self._worker.wait(1500)
+        super().closeEvent(event)

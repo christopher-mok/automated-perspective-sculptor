@@ -428,6 +428,11 @@ class Viewport(QOpenGLWidget):
         self._scene.set_meshes([p.to_mesh() for p in patches])
         self.update()
 
+    def set_meshes(self, meshes: list["Mesh"]) -> None:
+        """Replace scene meshes with worker-produced mesh snapshots."""
+        self._scene.set_meshes(meshes)
+        self.update()
+
     # ------------------------------------------------------------------
     # OpenGL lifecycle
     # ------------------------------------------------------------------
