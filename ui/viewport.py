@@ -419,6 +419,15 @@ class Viewport(QOpenGLWidget):
         self._orbit.target[:] = 0.0
         self.update()
 
+    def set_patches(self, patches: list) -> None:
+        """Replace scene meshes with the visual quad for each patch.
+
+        Call this from the main thread whenever the patch list changes
+        (after initialization or each optimization update).
+        """
+        self._scene.set_meshes([p.to_mesh() for p in patches])
+        self.update()
+
     # ------------------------------------------------------------------
     # OpenGL lifecycle
     # ------------------------------------------------------------------

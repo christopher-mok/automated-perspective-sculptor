@@ -103,7 +103,29 @@ class PatchesSection(QGroupBox):
         self._init_combo = QComboBox()
         self._init_combo.addItems(["SAM segmentation", "Grid", "Random"])
         self._init_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
+        self._init_combo.currentTextChanged.connect(self._on_mode_changed)
         layout.addLayout(_row("Initialization", self._init_combo))
+
+        # SAM model selector (only visible in SAM mode)
+        self._sam_model_lbl = QLabel("SAM model")
+        self._sam_model_lbl.setStyleSheet(_LABEL_STYLE)
+        self._sam_model_combo = QComboBox()
+        self._sam_model_combo.addItems([
+            "MobileSAM (fast)",
+            "SAM vit_b (balanced)",
+            "SAM vit_h (best quality)",
+        ])
+        self._sam_model_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
+        self._sam_model_row = QHBoxLayout()
+        self._sam_model_row.addWidget(self._sam_model_lbl)
+        self._sam_model_row.addWidget(self._sam_model_combo)
+        layout.addLayout(self._sam_model_row)
+
+        # Device toggle
+        self._device_combo = QComboBox()
+        self._device_combo.addItems(["Mac (CPU)", "Mac (MPS)", "CUDA (NVIDIA)"])
+        self._device_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
+        layout.addLayout(_row("Device", self._device_combo))
 
         # Initialize button
         self._init_btn = QPushButton("Initialize patches")
@@ -115,11 +137,22 @@ class PatchesSection(QGroupBox):
         self._init_btn.clicked.connect(self._on_initialize)
         layout.addWidget(self._init_btn)
 
+        # Set initial SAM row visibility
+        self._on_mode_changed(self._init_combo.currentText())
+
+    def _on_mode_changed(self, text: str) -> None:
+        sam_only = text == "SAM segmentation"
+        self._sam_model_lbl.setVisible(sam_only)
+        self._sam_model_combo.setVisible(sam_only)
+
     def _on_initialize(self) -> None:
         n = self._n_slider.value()
         mode = self._init_combo.currentText()
         print(f"[Initialize patches] n={n}, mode={mode!r}")
         self.initialize_requested.emit(n, mode)
+
+        # Trigger visibility update in case the widget was just shown
+        self._on_mode_changed(mode)
 
     @property
     def n_patches(self) -> int:
@@ -128,6 +161,21 @@ class PatchesSection(QGroupBox):
     @property
     def init_mode(self) -> str:
         return self._init_combo.currentText()
+
+    @property
+    def sam_model(self) -> str:
+        """Returns the selected SAM variant label."""
+        return self._sam_model_combo.currentText()
+
+    @property
+    def device(self) -> str:
+        """Returns the torch device string for the selected option."""
+        _map = {
+            "Mac (CPU)":      "cpu",
+            "Mac (MPS)":      "mps",
+            "CUDA (NVIDIA)":  "cuda",
+        }
+        return _map.get(self._device_combo.currentText(), "cpu")
 
 
 # ---------------------------------------------------------------------------

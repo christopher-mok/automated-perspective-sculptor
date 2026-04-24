@@ -1,0 +1,5 @@
+{
+  "python.defaultInterpreterPath": "/Library/Frameworks/Python.framework/Versions/3.10/bin/python3",
+  "python.analysis.extraPaths": [],
+  "pylance.insidersChannel": "off"
+}

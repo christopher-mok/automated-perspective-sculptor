@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMainWindow, QSplitter, QWidget
+from PyQt6.QtWidgets import QMainWindow, QMessageBox, QSplitter
 
 from scene.camera import Camera
 from scene.scene import Scene
@@ -120,6 +120,10 @@ class MainWindow(QMainWindow):
         for cam in _make_scene_cameras():
             self._scene.add_camera(cam)
 
+        # Patch state
+        self._patches: list = []
+        self._target1_img: np.ndarray | None = None  # uint8 (H,W,3) for SAM
+
         # Build panels
         self._image_panel   = ImagePanel(self)
         self._viewport      = Viewport(self._scene, self)
@@ -141,13 +145,40 @@ class MainWindow(QMainWindow):
         # Wire up signals
         self._image_panel.view1_loaded.connect(self._on_view1_loaded)
         self._image_panel.view2_loaded.connect(self._on_view2_loaded)
+        self._controls.patches.initialize_requested.connect(self._on_initialize)
 
     # ------------------------------------------------------------------
     # Signal handlers
     # ------------------------------------------------------------------
 
     def _on_view1_loaded(self, path: str) -> None:
+        from PIL import Image
+        self._target1_img = np.array(Image.open(path).convert("RGB"))
         print(f"[View 1 target] loaded: {path}")
 
     def _on_view2_loaded(self, path: str) -> None:
         print(f"[View 2 target] loaded: {path}")
+
+    def _on_initialize(self, n_patches: int, mode: str) -> None:
+        from core.initialization import initialize_patches
+
+        device = self._controls.patches.device
+
+        try:
+            self._patches = initialize_patches(
+                mode=mode,
+                n_patches=n_patches,
+                reference_image=self._target1_img,
+                sam_variant=self._controls.patches.sam_model,
+                device=device,
+            )
+        except (ValueError, FileNotFoundError, ImportError) as exc:
+            QMessageBox.warning(self, "Initialize patches", str(exc))
+            return
+        except RuntimeError as exc:
+            # Catches e.g. MPS/CUDA not available on this machine
+            QMessageBox.warning(self, "Device error", str(exc))
+            return
+
+        self._viewport.set_patches(self._patches)
+        print(f"[Initialize patches] {len(self._patches)} patches ({mode}, {device})")
