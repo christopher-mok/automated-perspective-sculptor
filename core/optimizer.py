@@ -18,6 +18,7 @@ Typical use (from the UI worker)
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -352,6 +353,49 @@ def patch_edge_on_loss(
     return torch.stack(losses).mean()
 
 
+def _temperature_scale(
+    step: int,
+    total_steps: int,
+    temperature: float,
+    schedule: str,
+) -> float:
+    total = max(1, total_steps)
+    t = min(max(step / total, 0.0), 1.0)
+    schedule_l = schedule.lower()
+
+    if "cosine" in schedule_l:
+        return temperature * 0.5 * (1.0 + math.cos(math.pi * t))
+    if "exponential" in schedule_l:
+        return temperature * math.exp(-5.0 * t)
+    return temperature * (1.0 - t)
+
+
+def apply_temperature_noise(
+    model,
+    step: int,
+    total_steps: int,
+    temperature: float,
+    schedule: str,
+) -> float:
+    """Apply post-step simulated-annealing noise to patch parameters."""
+    noise_scale = _temperature_scale(step, total_steps, temperature, schedule)
+    if noise_scale <= 0.0:
+        return 0.0
+
+    patches = model.patches if hasattr(model, "patches") else model
+    with torch.no_grad():
+        for patch in patches:
+            patch.center.add_(torch.randn_like(patch.center) * (noise_scale * 0.1))
+            patch.theta.add_(torch.randn_like(patch.theta) * (noise_scale * 0.3))
+            for cp in patch.control_points:
+                cp.x.add_(torch.randn_like(cp.x) * (noise_scale * 0.05))
+                cp.y.add_(torch.randn_like(cp.y) * (noise_scale * 0.05))
+                cp.z.add_(torch.randn_like(cp.z) * (noise_scale * 0.05))
+                cp.handle_scale.add_(torch.randn_like(cp.handle_scale) * (noise_scale * 0.02))
+                cp.handle_rotation.add_(torch.randn_like(cp.handle_rotation) * (noise_scale * 0.2))
+    return noise_scale
+
+
 class SceneOptimizer:
     """Render, compare to quantized target images, and Adam-step patches."""
 
@@ -382,6 +426,8 @@ class SceneOptimizer:
         min_projected_area: float = 0.01,
         edge_on_weight: float = 0.02,
         min_camera_facing: float = 0.18,
+        initial_temperature: float = 0.5,
+        temperature_schedule: str = "Linear decay",
     ) -> None:
         if not patches:
             raise ValueError("SceneOptimizer requires at least one patch.")
@@ -401,6 +447,8 @@ class SceneOptimizer:
         self.min_projected_area = min_projected_area
         self.edge_on_weight = edge_on_weight
         self.min_camera_facing = min_camera_facing
+        self.initial_temperature = initial_temperature
+        self.temperature_schedule = temperature_schedule
 
         self.palette = parse_palette(palette).to(device)
         target1_fit = fit_image_to_resolution(target1, self.resolution, device)
@@ -428,7 +476,7 @@ class SceneOptimizer:
         snap_patches_to_palette(self.patches, self.palette)
         self._post_step_constraints()
 
-    def step(self) -> dict[str, float]:
+    def step(self, step_idx: int = 1, total_steps: int = 1) -> dict[str, float]:
         self.optim.zero_grad(set_to_none=True)
 
         render1, render2 = self.renderer.render_both(
@@ -473,6 +521,14 @@ class SceneOptimizer:
         )
         loss.backward()
         self.optim.step()
+        self.optim.zero_grad(set_to_none=True)
+        temperature_scale = apply_temperature_noise(
+            self,
+            step_idx,
+            total_steps,
+            self.initial_temperature,
+            self.temperature_schedule,
+        )
         self._post_step_constraints()
 
         return {
@@ -484,6 +540,7 @@ class SceneOptimizer:
             "overlap": float(overlap.detach().cpu()),
             "visibility": float(visibility.detach().cpu()),
             "edge_on": float(edge_on.detach().cpu()),
+            "temperature": temperature_scale,
         }
 
     def _post_step_constraints(self) -> None:
@@ -503,4 +560,4 @@ class SceneOptimizer:
 
     def run(self, n_steps: int = 500) -> Iterator[tuple[int, dict[str, float]]]:
         for step_idx in range(1, n_steps + 1):
-            yield step_idx, self.step()
+            yield step_idx, self.step(step_idx, n_steps)

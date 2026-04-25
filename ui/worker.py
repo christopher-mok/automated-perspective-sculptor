@@ -27,6 +27,8 @@ class OptimizationWorker(QThread):
         palette: object,
         lr: float,
         n_steps: int,
+        initial_temperature: float,
+        temperature_schedule: str,
         run_until_convergence: bool,
         convergence_threshold: float,
         view2_loss: str,
@@ -42,6 +44,8 @@ class OptimizationWorker(QThread):
         self._palette = palette
         self._lr = lr
         self._n_steps = n_steps
+        self._initial_temperature = initial_temperature
+        self._temperature_schedule = temperature_schedule
         self._run_until_convergence = run_until_convergence
         self._convergence_threshold = convergence_threshold
         self._view2_loss = view2_loss
@@ -71,6 +75,8 @@ class OptimizationWorker(QThread):
                 self._target2,
                 palette=self._palette,
                 lr=self._lr,
+                initial_temperature=self._initial_temperature,
+                temperature_schedule=self._temperature_schedule,
                 view2_loss=self._view2_loss,
                 sds_prompt=self._sds_prompt,
                 device=self._device,
@@ -84,7 +90,7 @@ class OptimizationWorker(QThread):
                     if self._stop_requested:
                         break
                     step_idx += 1
-                    last_metrics = optimizer.step()
+                    last_metrics = optimizer.step(step_idx, self._n_steps)
                     self.step_completed.emit(
                         step_idx,
                         last_metrics,
@@ -98,7 +104,7 @@ class OptimizationWorker(QThread):
                     self._wait_if_paused()
                     if self._stop_requested:
                         break
-                    last_metrics = optimizer.step()
+                    last_metrics = optimizer.step(step_idx, self._n_steps)
                     self.step_completed.emit(
                         step_idx,
                         last_metrics,

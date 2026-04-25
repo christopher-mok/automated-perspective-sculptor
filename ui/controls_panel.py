@@ -271,6 +271,30 @@ class OptimizationSection(QGroupBox):
         layout.addLayout(lr_row)
         layout.addWidget(self._lr_slider)
 
+        # Temperature perturbation
+        self._temperature_slider, self._temperature_lbl = _labeled_slider(0, 100, 50, "{:.2f}")
+        self._temperature_lbl.setText("0.50")
+        self._temperature_slider.valueChanged.connect(
+            lambda v: self._temperature_lbl.setText(f"{v / 100.0:.2f}")
+        )
+        temp_row = QHBoxLayout()
+        temp_lbl = QLabel("Temperature")
+        temp_lbl.setStyleSheet(_LABEL_STYLE)
+        temp_row.addWidget(temp_lbl)
+        temp_row.addStretch()
+        temp_row.addWidget(self._temperature_lbl)
+        layout.addLayout(temp_row)
+        layout.addWidget(self._temperature_slider)
+
+        self._temperature_schedule_combo = QComboBox()
+        self._temperature_schedule_combo.addItems([
+            "Linear decay",
+            "Cosine decay",
+            "Exponential decay",
+        ])
+        self._temperature_schedule_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
+        layout.addLayout(_row("Temperature schedule", self._temperature_schedule_combo))
+
         # Run mode
         self._run_mode_combo = QComboBox()
         self._run_mode_combo.addItems(["Fixed steps", "Until convergence"])
@@ -420,6 +444,14 @@ class OptimizationSection(QGroupBox):
         return self._steps_slider.value()
 
     @property
+    def initial_temperature(self) -> float:
+        return self._temperature_slider.value() / 100.0
+
+    @property
+    def temperature_schedule(self) -> str:
+        return self._temperature_schedule_combo.currentText()
+
+    @property
     def run_until_convergence(self) -> bool:
         return self._run_mode_combo.currentText() == "Until convergence"
 
@@ -450,6 +482,8 @@ class OptimizationSection(QGroupBox):
         for widget in (
             self._loss_combo,
             self._lr_slider,
+            self._temperature_slider,
+            self._temperature_schedule_combo,
             self._run_mode_combo,
             self._steps_slider,
             self._threshold_slider,

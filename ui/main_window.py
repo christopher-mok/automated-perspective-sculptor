@@ -235,6 +235,8 @@ class MainWindow(QMainWindow):
             palette=opt.palette,
             lr=opt.learning_rate,
             n_steps=opt.n_steps,
+            initial_temperature=opt.initial_temperature,
+            temperature_schedule=opt.temperature_schedule,
             run_until_convergence=opt.run_until_convergence,
             convergence_threshold=opt.convergence_threshold,
             view2_loss=view2_loss,
@@ -253,11 +255,13 @@ class MainWindow(QMainWindow):
         if opt.run_until_convergence:
             print(
                 f"[Optimization] started: until loss <= {opt.convergence_threshold:.3e}, "
-                f"lr={opt.learning_rate:.3e}, palette={opt.palette!r}"
+                f"lr={opt.learning_rate:.3e}, temp={opt.initial_temperature:.2f}, "
+                f"schedule={opt.temperature_schedule!r}, palette={opt.palette!r}"
             )
         else:
             print(
                 f"[Optimization] started: steps={opt.n_steps}, lr={opt.learning_rate:.3e}, "
+                f"temp={opt.initial_temperature:.2f}, schedule={opt.temperature_schedule!r}, "
                 f"palette={opt.palette!r}"
             )
 
