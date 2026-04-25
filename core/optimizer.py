@@ -36,8 +36,8 @@ if TYPE_CHECKING:
 
 
 DEFAULT_PALETTE: tuple[tuple[float, float, float], ...] = (
-    (0.05, 0.05, 0.05),
     (0.95, 0.95, 0.95),
+    (0.05, 0.05, 0.05),
 )
 
 
@@ -266,6 +266,92 @@ def patch_overlap_loss(
     return torch.stack(losses).mean()
 
 
+def _camera_mvp_tensor(camera: "Camera", device: str) -> torch.Tensor:
+    view = torch.from_numpy(camera.view_matrix()).to(device=device, dtype=torch.float32)
+    proj = torch.from_numpy(camera.projection_matrix()).to(device=device, dtype=torch.float32)
+    return proj @ view
+
+
+def _patch_projected_area(
+    patch: "Patch",
+    camera: "Camera",
+    n_per_segment: int = 6,
+) -> torch.Tensor:
+    """Approximate one patch's screen-space area in normalized device coords."""
+    pts = patch.sample_spline_world(n_per_segment)
+    ones = torch.ones(len(pts), 1, device=pts.device, dtype=pts.dtype)
+    pts_h = torch.cat([pts, ones], dim=1)
+
+    mvp = _camera_mvp_tensor(camera, str(pts.device)).to(dtype=pts.dtype)
+    clip = pts_h @ mvp.T
+    w = clip[:, 3].clamp_min(1e-6)
+    ndc = clip[:, :2] / w.unsqueeze(1)
+
+    x = ndc[:, 0]
+    y = ndc[:, 1]
+    area = 0.5 * torch.abs(
+        torch.sum(x * torch.roll(y, shifts=-1) - y * torch.roll(x, shifts=-1))
+    )
+
+    front_fraction = (clip[:, 3] > 1e-5).to(dtype=pts.dtype).mean().detach()
+    return area * front_fraction
+
+
+def patch_visibility_loss(
+    patches: Sequence["Patch"],
+    cameras: Sequence["Camera"],
+    min_projected_area: float = 0.0015,
+) -> torch.Tensor:
+    """Soft per-piece, per-camera penalty for pieces that are barely visible."""
+    if not patches:
+        return torch.zeros(())
+
+    losses: list[torch.Tensor] = []
+    for patch in patches:
+        for camera in cameras:
+            area = _patch_projected_area(patch, camera)
+            shortfall = torch.relu(area.new_tensor(min_projected_area) - area)
+            losses.append((shortfall / max(min_projected_area, 1e-8)) ** 2)
+
+    if not losses:
+        return torch.zeros((), device=patches[0].center.device)
+    return torch.stack(losses).mean()
+
+
+def _camera_forward_tensor(camera: "Camera", device: str, dtype: torch.dtype) -> torch.Tensor:
+    forward_np = camera.target - camera.position
+    forward_np = forward_np / max(float(np.linalg.norm(forward_np)), 1e-8)
+    return torch.from_numpy(forward_np).to(device=device, dtype=dtype)
+
+
+def _patch_normal(patch: "Patch") -> torch.Tensor:
+    normal = patch.rotation_matrix() @ patch.center.new_tensor([0.0, 0.0, 1.0])
+    return normal / torch.linalg.norm(normal).clamp_min(1e-8)
+
+
+def patch_edge_on_loss(
+    patches: Sequence["Patch"],
+    cameras: Sequence["Camera"],
+    min_facing: float = 0.18,
+) -> torch.Tensor:
+    """Soft penalty for patches that become nearly edge-on to a camera."""
+    if not patches:
+        return torch.zeros(())
+
+    losses: list[torch.Tensor] = []
+    for patch in patches:
+        normal = _patch_normal(patch)
+        for camera in cameras:
+            forward = _camera_forward_tensor(camera, str(normal.device), normal.dtype)
+            facing = torch.abs(torch.dot(normal, forward))
+            shortfall = torch.relu(facing.new_tensor(min_facing) - facing)
+            losses.append((shortfall / max(min_facing, 1e-8)) ** 2)
+
+    if not losses:
+        return torch.zeros((), device=patches[0].center.device)
+    return torch.stack(losses).mean()
+
+
 class SceneOptimizer:
     """Render, compare to quantized target images, and Adam-step patches."""
 
@@ -288,8 +374,14 @@ class SceneOptimizer:
         n_per_segment: int = 20,
         silhouette_weight: float = 2.0,
         #overlap_weight: float = 0.05,
-        overlap_weight: float = 0.1,
+        overlap_weight: float = 0.7,
         overlap_margin: float = 0.005,
+        # visibility_weight: float = 0.05,
+        # min_projected_area: float = 0.0015,
+        visibility_weight: float = 2,
+        min_projected_area: float = 0.01,
+        edge_on_weight: float = 0.02,
+        min_camera_facing: float = 0.18,
     ) -> None:
         if not patches:
             raise ValueError("SceneOptimizer requires at least one patch.")
@@ -305,6 +397,10 @@ class SceneOptimizer:
         self.silhouette_weight = silhouette_weight
         self.overlap_weight = overlap_weight
         self.overlap_margin = overlap_margin
+        self.visibility_weight = visibility_weight
+        self.min_projected_area = min_projected_area
+        self.edge_on_weight = edge_on_weight
+        self.min_camera_facing = min_camera_facing
 
         self.palette = parse_palette(palette).to(device)
         target1_fit = fit_image_to_resolution(target1, self.resolution, device)
@@ -358,7 +454,23 @@ class SceneOptimizer:
             loss2 = loss2_rgb + self.silhouette_weight * loss2_silhouette
 
         overlap = patch_overlap_loss(self.patches, self.overlap_margin)
-        loss = loss1 + loss2 + self.overlap_weight * overlap
+        visibility = patch_visibility_loss(
+            self.patches,
+            (self.camera1, self.camera2),
+            self.min_projected_area,
+        )
+        edge_on = patch_edge_on_loss(
+            self.patches,
+            (self.camera1, self.camera2),
+            self.min_camera_facing,
+        )
+        loss = (
+            loss1
+            + loss2
+            + self.overlap_weight * overlap
+            + self.visibility_weight * visibility
+            + self.edge_on_weight * edge_on
+        )
         loss.backward()
         self.optim.step()
         self._post_step_constraints()
@@ -370,6 +482,8 @@ class SceneOptimizer:
             "view1_silhouette": float(loss1_silhouette.detach().cpu()),
             "view2_silhouette": float(loss2_silhouette.detach().cpu()),
             "overlap": float(overlap.detach().cpu()),
+            "visibility": float(visibility.detach().cpu()),
+            "edge_on": float(edge_on.detach().cpu()),
         }
 
     def _post_step_constraints(self) -> None:
