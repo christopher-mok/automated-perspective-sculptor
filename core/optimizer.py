@@ -29,6 +29,7 @@ import torch.nn.functional as F
 
 from core.loss import masked_rgb_loss, sds_loss, silhouette_loss
 from core.renderer import DiffRenderer
+from optimizer.patch_monitor import PatchHealthMonitor
 
 if TYPE_CHECKING:
     from core.patch import Patch
@@ -319,6 +320,48 @@ def patch_visibility_loss(
     return torch.stack(losses).mean()
 
 
+def _patch_camera_bounds_loss(
+    patch: "Patch",
+    camera: "Camera",
+    n_per_segment: int = 6,
+    xy_limit: float = 0.98,
+) -> torch.Tensor:
+    """Soft penalty for patch outline points outside one camera frustum."""
+    pts = patch.sample_spline_world(n_per_segment)
+    ones = torch.ones(len(pts), 1, device=pts.device, dtype=pts.dtype)
+    pts_h = torch.cat([pts, ones], dim=1)
+
+    mvp = _camera_mvp_tensor(camera, str(pts.device)).to(dtype=pts.dtype)
+    clip = pts_h @ mvp.T
+    w = clip[:, 3]
+    w_safe = w.abs().clamp_min(1e-4)
+    ndc = clip[:, :3] / w_safe.unsqueeze(1)
+
+    xy_excess = torch.relu(torch.abs(ndc[:, :2]) - xy_limit)
+    z_excess = torch.relu(torch.abs(ndc[:, 2]) - 1.0)
+    behind = torch.relu(w.new_tensor(1e-4) - w)
+    return xy_excess.square().mean() + z_excess.square().mean() + behind.square().mean()
+
+
+def patch_camera_bounds_loss(
+    patches: Sequence["Patch"],
+    cameras: Sequence["Camera"],
+    xy_limit: float = 0.98,
+) -> torch.Tensor:
+    """Soft penalty for pieces drifting outside either camera view."""
+    if not patches:
+        return torch.zeros(())
+
+    losses: list[torch.Tensor] = []
+    for patch in patches:
+        for camera in cameras:
+            losses.append(_patch_camera_bounds_loss(patch, camera, xy_limit=xy_limit))
+
+    if not losses:
+        return torch.zeros((), device=patches[0].center.device)
+    return torch.stack(losses).mean()
+
+
 def _camera_forward_tensor(camera: "Camera", device: str, dtype: torch.dtype) -> torch.Tensor:
     forward_np = camera.target - camera.position
     forward_np = forward_np / max(float(np.linalg.norm(forward_np)), 1e-8)
@@ -426,8 +469,12 @@ class SceneOptimizer:
         min_projected_area: float = 0.01,
         edge_on_weight: float = 0.02,
         min_camera_facing: float = 0.18,
+        camera_bounds_weight: float = 0.3,
+        camera_bounds_xy_limit: float = 0.98,
         initial_temperature: float = 0.5,
         temperature_schedule: str = "Linear decay",
+        enable_patch_restarts: bool = True,
+        restart_interval: int = 100,
     ) -> None:
         if not patches:
             raise ValueError("SceneOptimizer requires at least one patch.")
@@ -447,8 +494,12 @@ class SceneOptimizer:
         self.min_projected_area = min_projected_area
         self.edge_on_weight = edge_on_weight
         self.min_camera_facing = min_camera_facing
+        self.camera_bounds_weight = camera_bounds_weight
+        self.camera_bounds_xy_limit = camera_bounds_xy_limit
         self.initial_temperature = initial_temperature
         self.temperature_schedule = temperature_schedule
+        self.enable_patch_restarts = enable_patch_restarts
+        self.restart_interval = restart_interval
 
         self.palette = parse_palette(palette).to(device)
         target1_fit = fit_image_to_resolution(target1, self.resolution, device)
@@ -475,6 +526,19 @@ class SceneOptimizer:
         self.optim = torch.optim.Adam(_parameter_groups(patches), lr=lr)
         snap_patches_to_palette(self.patches, self.palette)
         self._post_step_constraints()
+        self.patch_monitor = (
+            PatchHealthMonitor(
+                self.patches,
+                (self.camera1, self.camera2),
+                self.renderer,
+                self.target1,
+                self.target2,
+                self.resolution,
+                self.optim,
+                restart_interval=restart_interval,
+            )
+            if enable_patch_restarts else None
+        )
 
     def step(self, step_idx: int = 1, total_steps: int = 1) -> dict[str, float]:
         self.optim.zero_grad(set_to_none=True)
@@ -486,6 +550,70 @@ class SceneOptimizer:
             self.resolution,
         )
 
+        loss, components = self._loss_from_renders(render1, render2, self.patches)
+        loss.backward()
+        self.optim.step()
+        self.optim.zero_grad(set_to_none=True)
+        temperature_scale = apply_temperature_noise(
+            self,
+            step_idx,
+            total_steps,
+            self.initial_temperature,
+            self.temperature_schedule,
+        )
+        self._post_step_constraints()
+
+        loss_value = float(loss.detach().cpu())
+        restarted = 0
+        if self.patch_monitor is not None:
+            self.patch_monitor.update(step_idx, render1, render2)
+            if self.restart_interval > 0 and step_idx % self.restart_interval == 0:
+                with torch.no_grad():
+                    current_render1, current_render2 = self.renderer.render_both(
+                        self.patches,
+                        self.camera1,
+                        self.camera2,
+                        self.resolution,
+                    )
+                    current_loss, _ = self._loss_from_renders(
+                        current_render1,
+                        current_render2,
+                        self.patches,
+                    )
+                    current_loss_value = float(current_loss.detach().cpu())
+                restarted = self.patch_monitor.check_and_restart(
+                    step_idx,
+                    current_loss_value,
+                    self._evaluate_loss_value,
+                    current_render1,
+                    current_render2,
+                )
+                if restarted:
+                    self._post_step_constraints()
+
+        return {
+            "loss": loss_value,
+            "view1_mse": float(components["loss1"].detach().cpu()),
+            "view2_loss": float(components["loss2"].detach().cpu()),
+            "view1_silhouette": float(components["loss1_silhouette"].detach().cpu()),
+            "view2_silhouette": float(components["loss2_silhouette"].detach().cpu()),
+            "overlap": float(components["overlap"].detach().cpu()),
+            "visibility": float(components["visibility"].detach().cpu()),
+            "edge_on": float(components["edge_on"].detach().cpu()),
+            "camera_bounds": float(components["camera_bounds"].detach().cpu()),
+            "temperature": temperature_scale,
+            "patch_restarts": float(restarted),
+            "patch_restarts_total": float(
+                self.patch_monitor.restart_count if self.patch_monitor is not None else 0
+            ),
+        }
+
+    def _loss_from_renders(
+        self,
+        render1: torch.Tensor,
+        render2: torch.Tensor,
+        patches: Sequence["Patch"],
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         loss1_rgb = masked_rgb_loss(render1, self.target1, self.target1_mask)
         loss1_silhouette = silhouette_loss(render1, self.target1_mask)
         loss1 = loss1_rgb + self.silhouette_weight * loss1_silhouette
@@ -501,47 +629,57 @@ class SceneOptimizer:
             loss2_silhouette = silhouette_loss(render2, self.target2_mask)
             loss2 = loss2_rgb + self.silhouette_weight * loss2_silhouette
 
-        overlap = patch_overlap_loss(self.patches, self.overlap_margin)
-        visibility = patch_visibility_loss(
-            self.patches,
-            (self.camera1, self.camera2),
-            self.min_projected_area,
-        )
-        edge_on = patch_edge_on_loss(
-            self.patches,
-            (self.camera1, self.camera2),
-            self.min_camera_facing,
-        )
+        if patches:
+            overlap = patch_overlap_loss(patches, self.overlap_margin)
+            visibility = patch_visibility_loss(
+                patches,
+                (self.camera1, self.camera2),
+                self.min_projected_area,
+            )
+            edge_on = patch_edge_on_loss(
+                patches,
+                (self.camera1, self.camera2),
+                self.min_camera_facing,
+            )
+            camera_bounds = patch_camera_bounds_loss(
+                patches,
+                (self.camera1, self.camera2),
+                self.camera_bounds_xy_limit,
+            )
+        else:
+            overlap = torch.zeros((), device=loss1.device)
+            visibility = torch.zeros((), device=loss1.device)
+            edge_on = torch.zeros((), device=loss1.device)
+            camera_bounds = torch.zeros((), device=loss1.device)
         loss = (
             loss1
             + loss2
             + self.overlap_weight * overlap
             + self.visibility_weight * visibility
             + self.edge_on_weight * edge_on
+            + self.camera_bounds_weight * camera_bounds
         )
-        loss.backward()
-        self.optim.step()
-        self.optim.zero_grad(set_to_none=True)
-        temperature_scale = apply_temperature_noise(
-            self,
-            step_idx,
-            total_steps,
-            self.initial_temperature,
-            self.temperature_schedule,
-        )
-        self._post_step_constraints()
-
-        return {
-            "loss": float(loss.detach().cpu()),
-            "view1_mse": float(loss1.detach().cpu()),
-            "view2_loss": float(loss2.detach().cpu()),
-            "view1_silhouette": float(loss1_silhouette.detach().cpu()),
-            "view2_silhouette": float(loss2_silhouette.detach().cpu()),
-            "overlap": float(overlap.detach().cpu()),
-            "visibility": float(visibility.detach().cpu()),
-            "edge_on": float(edge_on.detach().cpu()),
-            "temperature": temperature_scale,
+        return loss, {
+            "loss1": loss1,
+            "loss2": loss2,
+            "loss1_silhouette": loss1_silhouette,
+            "loss2_silhouette": loss2_silhouette,
+            "overlap": overlap,
+            "visibility": visibility,
+            "edge_on": edge_on,
+            "camera_bounds": camera_bounds,
         }
+
+    def _evaluate_loss_value(self, patches: Sequence["Patch"]) -> float:
+        with torch.no_grad():
+            render1, render2 = self.renderer.render_both(
+                list(patches),
+                self.camera1,
+                self.camera2,
+                self.resolution,
+            )
+            loss, _ = self._loss_from_renders(render1, render2, patches)
+            return float(loss.detach().cpu())
 
     def _post_step_constraints(self) -> None:
         with torch.no_grad():
