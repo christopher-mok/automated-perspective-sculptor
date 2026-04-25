@@ -227,6 +227,45 @@ def _parameter_groups(patches: Sequence["Patch"]) -> list[torch.nn.Parameter]:
     return params
 
 
+def _patch_collision_radius(patch: "Patch") -> torch.Tensor:
+    """Conservative world-space radius enclosing one flat patch."""
+    max_radius = torch.zeros((), device=patch.center.device)
+    for cp in patch.control_points:
+        pos = cp.pos
+        handle = cp.handle_out()
+        cp_radius = torch.stack([
+            torch.linalg.norm(pos),
+            torch.linalg.norm(pos + handle),
+            torch.linalg.norm(pos - handle),
+        ]).max()
+        max_radius = torch.maximum(max_radius, cp_radius)
+    return max_radius + patch.DEFAULT_THICKNESS * 0.5
+
+
+def patch_overlap_loss(
+    patches: Sequence["Patch"],
+    margin: float = 0.005,
+) -> torch.Tensor:
+    """Soft penalty for overlapping conservative patch collision radii."""
+    if len(patches) < 2:
+        device = patches[0].center.device if patches else "cpu"
+        return torch.zeros((), device=device)
+
+    losses: list[torch.Tensor] = []
+    radii = [_patch_collision_radius(patch) for patch in patches]
+    for i in range(len(patches)):
+        for j in range(i + 1, len(patches)):
+            delta = patches[j].center - patches[i].center
+            dist = torch.linalg.norm(delta) + 1e-8
+            allowed = radii[i] + radii[j] + margin
+            overlap = torch.relu(allowed - dist)
+            losses.append(overlap ** 2)
+
+    if not losses:
+        return torch.zeros((), device=patches[0].center.device)
+    return torch.stack(losses).mean()
+
+
 class SceneOptimizer:
     """Render, compare to quantized target images, and Adam-step patches."""
 
@@ -248,6 +287,9 @@ class SceneOptimizer:
         device: str = "cpu",
         n_per_segment: int = 20,
         silhouette_weight: float = 2.0,
+        #overlap_weight: float = 0.05,
+        overlap_weight: float = 0.1,
+        overlap_margin: float = 0.005,
     ) -> None:
         if not patches:
             raise ValueError("SceneOptimizer requires at least one patch.")
@@ -261,6 +303,8 @@ class SceneOptimizer:
         self.sds_prompt = sds_prompt
         self.sds_pipe = sds_pipe
         self.silhouette_weight = silhouette_weight
+        self.overlap_weight = overlap_weight
+        self.overlap_margin = overlap_margin
 
         self.palette = parse_palette(palette).to(device)
         target1_fit = fit_image_to_resolution(target1, self.resolution, device)
@@ -313,7 +357,8 @@ class SceneOptimizer:
             loss2_silhouette = silhouette_loss(render2, self.target2_mask)
             loss2 = loss2_rgb + self.silhouette_weight * loss2_silhouette
 
-        loss = loss1 + loss2
+        overlap = patch_overlap_loss(self.patches, self.overlap_margin)
+        loss = loss1 + loss2 + self.overlap_weight * overlap
         loss.backward()
         self.optim.step()
         self._post_step_constraints()
@@ -324,6 +369,7 @@ class SceneOptimizer:
             "view2_loss": float(loss2.detach().cpu()),
             "view1_silhouette": float(loss1_silhouette.detach().cpu()),
             "view2_silhouette": float(loss2_silhouette.detach().cpu()),
+            "overlap": float(overlap.detach().cpu()),
         }
 
     def _post_step_constraints(self) -> None:

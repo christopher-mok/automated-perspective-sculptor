@@ -102,7 +102,7 @@ class PatchesSection(QGroupBox):
 
         # Initialization dropdown
         self._init_combo = QComboBox()
-        self._init_combo.addItems(["SAM segmentation", "Grid", "Random"])
+        self._init_combo.addItems(["SAM segmentation", "Grid", "Random", "Experimental"])
         self._init_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
         self._init_combo.currentTextChanged.connect(self._on_mode_changed)
         layout.addLayout(_row("Initialization", self._init_combo))
@@ -125,6 +125,7 @@ class PatchesSection(QGroupBox):
         # Device toggle
         self._device_combo = QComboBox()
         self._device_combo.addItems(["Mac (CPU)", "Mac (MPS)", "CUDA (NVIDIA)"])
+        self._device_combo.setCurrentText("CUDA (NVIDIA)")
         self._device_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
         layout.addLayout(_row("Device", self._device_combo))
 

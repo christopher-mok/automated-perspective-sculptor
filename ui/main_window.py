@@ -28,7 +28,7 @@ def _make_scene_cameras() -> list[Camera]:
         fov=50.0,
         aspect=4.0 / 3.0,
         near=0.35,
-        far=9.0,
+        far=18.0,
         color=(1.0, 0.85, 0.0),   # gold — View 1 along Z
         label="View 1",
     )
@@ -38,7 +38,7 @@ def _make_scene_cameras() -> list[Camera]:
         fov=50.0,
         aspect=4.0 / 3.0,
         near=0.35,
-        far=9.0,
+        far=18.0,
         color=(0.2, 0.8, 1.0),   # cyan — View 2 along X
         label="View 2",
     )
@@ -180,6 +180,7 @@ class MainWindow(QMainWindow):
                 n_patches=n_patches,
                 reference_image=self._target1_img,
                 sam_variant=self._controls.patches.sam_model,
+                cameras=self._scene.cameras,
                 device=device,
             )
             from core.optimizer import snap_patches_to_palette

@@ -15,10 +15,14 @@ from __future__ import annotations
 
 import math
 import os
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from core.patch import ControlPoint, Patch
+
+if TYPE_CHECKING:
+    from scene.camera import Camera
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +32,7 @@ from core.patch import ControlPoint, Patch
 _DEFAULT_BOUNDS: tuple[float, float, float, float] = (-2.0, 2.0, -2.0, 2.0)
 _DEFAULT_RADIUS: float = 0.18   # spline radius in local patch units
 _DEFAULT_Y:      float = 0.0
+_EXPERIMENTAL_BOX_SIZE: float = 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +189,40 @@ def init_random(
 
 
 # ---------------------------------------------------------------------------
+# Experimental initialization
+# ---------------------------------------------------------------------------
+
+
+def init_experimental(
+    n_patches: int,
+    cameras: list["Camera"] | None = None,
+    radius: float = _DEFAULT_RADIUS,
+    device: str = "cpu",
+    seed: int | None = None,
+) -> list[Patch]:
+    """Randomize patch centers within a 5x5x5 viewport-grid box."""
+    rng = np.random.default_rng(seed)
+    half = _EXPERIMENTAL_BOX_SIZE * 0.5
+    sample_min = np.array([-half, -half, -half], dtype=np.float32)
+    sample_max = np.array([half, half, half], dtype=np.float32)
+    extents = sample_max - sample_min
+    patch_radius = max(radius, float(np.cbrt(np.prod(extents) / max(n_patches, 1)) * 0.16))
+
+    patches: list[Patch] = []
+    for i in range(n_patches):
+        point = rng.uniform(sample_min, sample_max).astype(np.float32)
+        patches.append(_make_patch(
+            center=point.tolist(),
+            theta=float(rng.uniform(0.0, math.pi)),
+            radius=patch_radius,
+            device=device,
+            label=f"patch_{i:04d}",
+        ))
+
+    return patches
+
+
+# ---------------------------------------------------------------------------
 # SAM-guided initialization
 # ---------------------------------------------------------------------------
 
@@ -328,6 +367,7 @@ def initialize_patches(
     *,
     reference_image: np.ndarray | None = None,
     sam_variant: str = "MobileSAM (fast)",
+    cameras: list["Camera"] | None = None,
     seed: int | None = None,
 ) -> list[Patch]:
     """Single entry-point called by the UI.
@@ -341,6 +381,7 @@ def initialize_patches(
         device:          PyTorch device string.
         reference_image: Required for SAM mode.
         sam_variant:     SAM model label.
+        cameras:         Scene cameras, accepted for compatibility.
         seed:            RNG seed for Random mode.
     """
     if mode == "Grid":
@@ -348,6 +389,9 @@ def initialize_patches(
 
     if mode == "Random":
         return init_random(n_patches, bounds, radius, y, seed=seed, device=device)
+
+    if mode == "Experimental":
+        return init_experimental(n_patches, cameras, radius, device, seed=seed)
 
     if mode == "SAM segmentation":
         if reference_image is None:
