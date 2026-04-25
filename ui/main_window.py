@@ -125,6 +125,8 @@ class MainWindow(QMainWindow):
         self._target1_img: np.ndarray | None = None  # uint8 (H,W,3) for SAM
         self._target2_img: np.ndarray | None = None
         self._worker = None
+        self._optimization_run_until_convergence = False
+        self._reset_after_worker_stops = False
 
         # Build panels
         self._image_panel   = ImagePanel(self)
@@ -149,6 +151,9 @@ class MainWindow(QMainWindow):
         self._image_panel.view2_loaded.connect(self._on_view2_loaded)
         self._controls.patches.initialize_requested.connect(self._on_initialize)
         self._controls.optimization.run_requested.connect(self._on_run_optimization)
+        self._controls.optimization.pause_toggled.connect(self._on_pause_optimization)
+        self._controls.optimization.palette_changed.connect(self._on_palette_changed)
+        self._controls.optimization.reset_requested.connect(self._on_reset)
 
     # ------------------------------------------------------------------
     # Signal handlers
@@ -177,6 +182,9 @@ class MainWindow(QMainWindow):
                 sam_variant=self._controls.patches.sam_model,
                 device=device,
             )
+            from core.optimizer import snap_patches_to_palette
+
+            snap_patches_to_palette(self._patches, self._controls.optimization.palette)
         except (ValueError, FileNotFoundError, ImportError) as exc:
             QMessageBox.warning(self, "Initialize patches", str(exc))
             return
@@ -186,6 +194,7 @@ class MainWindow(QMainWindow):
             return
 
         self._viewport.set_patches(self._patches)
+        self._update_camera_previews_from_patches()
         print(f"[Initialize patches] {len(self._patches)} patches ({mode}, {device})")
 
     def _on_run_optimization(self) -> None:
@@ -206,6 +215,17 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Run optimization", "Enter an SDS prompt first.")
             return
 
+        try:
+            from core.optimizer import snap_patches_to_palette
+
+            snap_patches_to_palette(self._patches, opt.palette)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Run optimization", str(exc))
+            return
+        self._viewport.set_patches(self._patches)
+        self._update_camera_previews_from_patches()
+
+        self._optimization_run_until_convergence = opt.run_until_convergence
         self._worker = OptimizationWorker(
             patches=self._patches,
             cameras=self._scene.cameras,
@@ -214,6 +234,8 @@ class MainWindow(QMainWindow):
             palette=opt.palette,
             lr=opt.learning_rate,
             n_steps=opt.n_steps,
+            run_until_convergence=opt.run_until_convergence,
+            convergence_threshold=opt.convergence_threshold,
             view2_loss=view2_loss,
             sds_prompt=opt.sds_prompt,
             device=self._controls.patches.device,
@@ -224,25 +246,86 @@ class MainWindow(QMainWindow):
         self._worker.optimization_finished.connect(self._on_optimization_finished)
 
         self._controls.optimization.set_running(True)
+        self._controls.optimization.reset_progress()
         self._controls.export.set_enabled(False)
         self._worker.start()
-        print(
-            f"[Optimization] started: steps={opt.n_steps}, lr={opt.learning_rate:.3e}, "
-            f"palette={opt.palette!r}"
-        )
+        if opt.run_until_convergence:
+            print(
+                f"[Optimization] started: until loss <= {opt.convergence_threshold:.3e}, "
+                f"lr={opt.learning_rate:.3e}, palette={opt.palette!r}"
+            )
+        else:
+            print(
+                f"[Optimization] started: steps={opt.n_steps}, lr={opt.learning_rate:.3e}, "
+                f"palette={opt.palette!r}"
+            )
 
     def _on_optimization_step(self, step_idx: int, metrics: object, meshes: object) -> None:
         self._viewport.set_meshes(meshes)
+        self._image_panel.set_camera_previews(meshes, self._scene.cameras)
+        if not self._optimization_run_until_convergence:
+            self._controls.optimization.set_progress(step_idx)
         if step_idx == 1 or step_idx % 10 == 0:
             loss = metrics.get("loss", 0.0) if isinstance(metrics, dict) else 0.0
             print(f"[Optimization] step={step_idx}, loss={loss:.6f}")
 
+    def _on_pause_optimization(self, paused: bool) -> None:
+        if self._worker is None or not self._worker.isRunning():
+            return
+        self._worker.set_paused(paused)
+        print("[Optimization] paused" if paused else "[Optimization] resumed")
+
+    def _on_palette_changed(self) -> None:
+        if not self._patches:
+            return
+        try:
+            from core.optimizer import snap_patches_to_palette
+
+            snap_patches_to_palette(self._patches, self._controls.optimization.palette)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Palette", str(exc))
+            return
+        self._viewport.set_patches(self._patches)
+        self._update_camera_previews_from_patches()
+
+    def _on_reset(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            self._reset_after_worker_stops = True
+            self._worker.request_stop()
+            print("[Reset] stopping optimization before clearing state")
+            return
+
+        self._reset_state()
+
+    def _reset_state(self) -> None:
+        self._worker = None
+        self._optimization_run_until_convergence = False
+        self._reset_after_worker_stops = False
+        self._patches = []
+        self._target1_img = None
+        self._target2_img = None
+        self._image_panel.reset()
+        self._viewport.reset()
+        self._controls.optimization.reset_controls()
+        self._controls.export.set_enabled(False)
+        print("[Reset] cleared targets, patches, optimization state, and viewport")
+
+    def _update_camera_previews_from_patches(self) -> None:
+        meshes = [patch.to_mesh() for patch in self._patches]
+        self._image_panel.set_camera_previews(meshes, self._scene.cameras)
+
     def _on_optimization_failed(self, message: str) -> None:
+        if self._reset_after_worker_stops:
+            self._reset_state()
+            return
         self._controls.optimization.set_running(False)
         QMessageBox.warning(self, "Optimization failed", message)
         print(f"[Optimization] failed: {message}")
 
     def _on_optimization_finished(self, metrics: object) -> None:
+        if self._reset_after_worker_stops:
+            self._reset_state()
+            return
         self._controls.optimization.set_running(False)
         self._controls.export.set_enabled(True)
         loss = metrics.get("loss", None) if isinstance(metrics, dict) else None

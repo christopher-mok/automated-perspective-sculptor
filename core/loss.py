@@ -84,6 +84,33 @@ def mse_loss(
     return diff.mean()
 
 
+def silhouette_loss(
+    rendered: torch.Tensor,
+    target_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Mean-squared error between rendered alpha and a target foreground mask."""
+    if rendered.shape[-1] >= 4:
+        alpha = rendered[..., 3:4]
+    else:
+        alpha = rendered[..., :3].amax(dim=-1, keepdim=True)
+    mask = _match_size(alpha, target_mask.to(alpha.device))
+    if mask.dim() == 2:
+        mask = mask.unsqueeze(-1)
+    return ((alpha - mask.clamp(0.0, 1.0)) ** 2).mean()
+
+
+def masked_rgb_loss(
+    rendered: torch.Tensor,
+    target: torch.Tensor,
+    target_mask: torch.Tensor,
+) -> torch.Tensor:
+    """RGB loss weighted to the target foreground."""
+    if target_mask.dim() == 2:
+        target_mask = target_mask.unsqueeze(-1)
+    mask = _match_size(rendered[..., :1], target_mask.to(rendered.device)).clamp(0.0, 1.0)
+    return mse_loss(rendered, target, mask)
+
+
 # ---------------------------------------------------------------------------
 # SDS loss
 # ---------------------------------------------------------------------------

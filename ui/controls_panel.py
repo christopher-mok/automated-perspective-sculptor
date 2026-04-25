@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -185,6 +186,9 @@ class PatchesSection(QGroupBox):
 _LR_MIN_LOG = -4.0   # 1e-4
 _LR_MAX_LOG = -1.0   # 1e-1
 _LR_STEPS = 1000
+_THRESHOLD_MIN_LOG = -6.0   # 1e-6
+_THRESHOLD_MAX_LOG = -1.0   # 0.1
+_THRESHOLD_STEPS = 1000
 
 
 def _slider_to_lr(pos: int) -> float:
@@ -198,8 +202,22 @@ def _lr_to_slider(lr: float) -> int:
     return int(round(t * _LR_STEPS))
 
 
+def _slider_to_threshold(pos: int) -> float:
+    t = pos / _THRESHOLD_STEPS
+    return 10.0 ** (_THRESHOLD_MIN_LOG + (_THRESHOLD_MAX_LOG - _THRESHOLD_MIN_LOG) * t)
+
+
+def _threshold_to_slider(threshold: float) -> int:
+    log = math.log10(max(threshold, 1e-12))
+    t = (log - _THRESHOLD_MIN_LOG) / (_THRESHOLD_MAX_LOG - _THRESHOLD_MIN_LOG)
+    return int(round(t * _THRESHOLD_STEPS))
+
+
 class OptimizationSection(QGroupBox):
     run_requested = pyqtSignal()
+    pause_toggled = pyqtSignal(bool)
+    palette_changed = pyqtSignal()
+    reset_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Optimization", parent)
@@ -252,19 +270,60 @@ class OptimizationSection(QGroupBox):
         layout.addLayout(lr_row)
         layout.addWidget(self._lr_slider)
 
+        # Run mode
+        self._run_mode_combo = QComboBox()
+        self._run_mode_combo.addItems(["Fixed steps", "Until convergence"])
+        self._run_mode_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
+        self._run_mode_combo.currentTextChanged.connect(self._on_run_mode_changed)
+        layout.addLayout(_row("Run mode", self._run_mode_combo))
+
         # Step count
         self._steps_slider, self._steps_lbl = _labeled_slider(1, 1000, 200, "{}")
         self._steps_slider.valueChanged.connect(
             lambda v: self._steps_lbl.setText(str(v))
         )
-        steps_row = QHBoxLayout()
+        self._steps_row = QHBoxLayout()
         steps_lbl = QLabel("Steps")
         steps_lbl.setStyleSheet(_LABEL_STYLE)
-        steps_row.addWidget(steps_lbl)
-        steps_row.addStretch()
-        steps_row.addWidget(self._steps_lbl)
-        layout.addLayout(steps_row)
+        self._steps_row.addWidget(steps_lbl)
+        self._steps_row.addStretch()
+        self._steps_row.addWidget(self._steps_lbl)
+        layout.addLayout(self._steps_row)
         layout.addWidget(self._steps_slider)
+
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setRange(0, self._steps_slider.value())
+        self._progress_bar.setValue(0)
+        self._progress_bar.setTextVisible(True)
+        self._progress_bar.setFormat("0 / %m")
+        self._progress_bar.setStyleSheet(
+            "QProgressBar { color: #ddd; background: #252525; border: 1px solid #444; border-radius: 3px; text-align: center; height: 14px; }"
+            "QProgressBar::chunk { background: #2a6496; border-radius: 2px; }"
+        )
+        self._steps_slider.valueChanged.connect(self._on_steps_changed)
+        layout.addWidget(self._progress_bar)
+
+        # Convergence threshold
+        default_threshold = 1e-3
+        self._threshold_slider = QSlider(Qt.Orientation.Horizontal)
+        self._threshold_slider.setRange(0, _THRESHOLD_STEPS)
+        self._threshold_slider.setValue(_threshold_to_slider(default_threshold))
+        self._threshold_lbl = QLabel(f"{default_threshold:.2e}")
+        self._threshold_lbl.setStyleSheet(_VALUE_STYLE)
+        self._threshold_lbl.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self._threshold_slider.valueChanged.connect(
+            lambda v: self._threshold_lbl.setText(f"{_slider_to_threshold(v):.2e}")
+        )
+        self._threshold_row = QHBoxLayout()
+        threshold_lbl = QLabel("Threshold")
+        threshold_lbl.setStyleSheet(_LABEL_STYLE)
+        self._threshold_row.addWidget(threshold_lbl)
+        self._threshold_row.addStretch()
+        self._threshold_row.addWidget(self._threshold_lbl)
+        layout.addLayout(self._threshold_row)
+        layout.addWidget(self._threshold_slider)
 
         # Discrete colour palette
         palette_lbl = QLabel("Palette")
@@ -275,6 +334,7 @@ class OptimizationSection(QGroupBox):
         self._palette_input.setStyleSheet(
             "color: #ddd; background: #2a2a2a; border: 1px solid #444; border-radius: 3px; padding: 4px;"
         )
+        self._palette_input.editingFinished.connect(self.palette_changed.emit)
         layout.addWidget(palette_lbl)
         layout.addWidget(self._palette_input)
 
@@ -288,8 +348,54 @@ class OptimizationSection(QGroupBox):
         self._run_btn.clicked.connect(self._on_run)
         layout.addWidget(self._run_btn)
 
+        run_actions = QHBoxLayout()
+        self._pause_btn = QPushButton("Pause")
+        self._pause_btn.setEnabled(False)
+        self._pause_btn.setCheckable(True)
+        self._pause_btn.setStyleSheet(
+            "QPushButton { background: #5f5424; color: #fff; border-radius: 4px; padding: 6px; }"
+            "QPushButton:hover { background: #76682c; }"
+            "QPushButton:checked { background: #8a5a22; }"
+        )
+        self._pause_btn.toggled.connect(self._on_pause_toggled)
+        run_actions.addWidget(self._pause_btn)
+
+        self._reset_btn = QPushButton("Reset")
+        self._reset_btn.setStyleSheet(
+            "QPushButton { background: #5a2d2d; color: #fff; border-radius: 4px; padding: 6px; }"
+            "QPushButton:hover { background: #713838; }"
+            "QPushButton:pressed { background: #462323; }"
+        )
+        self._reset_btn.clicked.connect(self.reset_requested.emit)
+        run_actions.addWidget(self._reset_btn)
+        layout.addLayout(run_actions)
+
+        self._on_run_mode_changed(self._run_mode_combo.currentText())
+
     def _on_loss_changed(self, text: str) -> None:
         self._sds_input.setEnabled("SDS" in text)
+
+    def _on_run_mode_changed(self, text: str) -> None:
+        fixed_steps = text == "Fixed steps"
+        for i in range(self._steps_row.count()):
+            item = self._steps_row.itemAt(i)
+            widget = item.widget()
+            if widget is not None:
+                widget.setVisible(fixed_steps)
+        self._steps_slider.setVisible(fixed_steps)
+        self._progress_bar.setVisible(fixed_steps)
+
+        for i in range(self._threshold_row.count()):
+            item = self._threshold_row.itemAt(i)
+            widget = item.widget()
+            if widget is not None:
+                widget.setVisible(not fixed_steps)
+        self._threshold_slider.setVisible(not fixed_steps)
+
+    def _on_steps_changed(self, value: int) -> None:
+        self._steps_lbl.setText(str(value))
+        self._progress_bar.setMaximum(value)
+        self._progress_bar.setFormat(f"%v / {value}")
 
     def _on_run(self) -> None:
         lr = _slider_to_lr(self._lr_slider.value())
@@ -300,6 +406,10 @@ class OptimizationSection(QGroupBox):
         )
         self.run_requested.emit()
 
+    def _on_pause_toggled(self, paused: bool) -> None:
+        self._pause_btn.setText("Resume" if paused else "Pause")
+        self.pause_toggled.emit(paused)
+
     @property
     def learning_rate(self) -> float:
         return _slider_to_lr(self._lr_slider.value())
@@ -307,6 +417,14 @@ class OptimizationSection(QGroupBox):
     @property
     def n_steps(self) -> int:
         return self._steps_slider.value()
+
+    @property
+    def run_until_convergence(self) -> bool:
+        return self._run_mode_combo.currentText() == "Until convergence"
+
+    @property
+    def convergence_threshold(self) -> float:
+        return _slider_to_threshold(self._threshold_slider.value())
 
     @property
     def palette(self) -> str:
@@ -323,6 +441,35 @@ class OptimizationSection(QGroupBox):
     def set_running(self, running: bool) -> None:
         self._run_btn.setEnabled(not running)
         self._run_btn.setText("Optimizing..." if running else "Run optimization")
+        self._pause_btn.blockSignals(True)
+        self._pause_btn.setChecked(False)
+        self._pause_btn.setText("Pause")
+        self._pause_btn.blockSignals(False)
+        self._pause_btn.setEnabled(running)
+        for widget in (
+            self._loss_combo,
+            self._lr_slider,
+            self._run_mode_combo,
+            self._steps_slider,
+            self._threshold_slider,
+            self._palette_input,
+        ):
+            widget.setEnabled(not running)
+        self._sds_input.setEnabled((not running) and "SDS" in self._loss_combo.currentText())
+
+    def reset_controls(self) -> None:
+        self.set_running(False)
+        self.reset_progress()
+
+    def reset_progress(self) -> None:
+        self._progress_bar.setRange(0, self._steps_slider.value())
+        self._progress_bar.setValue(0)
+        self._progress_bar.setFormat(f"0 / {self._steps_slider.value()}")
+
+    def set_progress(self, step: int) -> None:
+        total = self._steps_slider.value()
+        self._progress_bar.setValue(min(step, total))
+        self._progress_bar.setFormat(f"{min(step, total)} / {total}")
 
 
 # ---------------------------------------------------------------------------

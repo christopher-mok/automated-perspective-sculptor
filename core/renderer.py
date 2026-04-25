@@ -216,6 +216,8 @@ class DiffRenderer:
 
         # ---- Compose RGBA ----------------------------------------------
         alpha = (rast[..., 3:4] > 0).float()              # (1, H, W, 1) — coverage mask
+        alpha = dr.antialias(alpha, rast, verts_clip, tris).clamp(0.0, 1.0)
+        color_out = color_out * alpha
         rgba  = torch.cat([color_out, alpha], dim=-1)      # (1, H, W, 4)
 
         return rgba.squeeze(0)   # (H, W, 4)

@@ -433,6 +433,11 @@ class Viewport(QOpenGLWidget):
         self._scene.set_meshes(meshes)
         self.update()
 
+    def reset(self) -> None:
+        """Clear rendered meshes and restore the default camera framing."""
+        self._scene.clear_meshes()
+        self.frame_scene()
+
     # ------------------------------------------------------------------
     # OpenGL lifecycle
     # ------------------------------------------------------------------

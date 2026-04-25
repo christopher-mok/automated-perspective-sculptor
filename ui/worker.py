@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import traceback
+import time
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
@@ -26,6 +27,8 @@ class OptimizationWorker(QThread):
         palette: object,
         lr: float,
         n_steps: int,
+        run_until_convergence: bool,
+        convergence_threshold: float,
         view2_loss: str,
         sds_prompt: str,
         device: str,
@@ -39,13 +42,24 @@ class OptimizationWorker(QThread):
         self._palette = palette
         self._lr = lr
         self._n_steps = n_steps
+        self._run_until_convergence = run_until_convergence
+        self._convergence_threshold = convergence_threshold
         self._view2_loss = view2_loss
         self._sds_prompt = sds_prompt
         self._device = device
         self._stop_requested = False
+        self._pause_requested = False
 
     def request_stop(self) -> None:
         self._stop_requested = True
+        self._pause_requested = False
+
+    def set_paused(self, paused: bool) -> None:
+        self._pause_requested = paused
+
+    def _wait_if_paused(self) -> None:
+        while self._pause_requested and not self._stop_requested:
+            time.sleep(0.05)
 
     def run(self) -> None:
         try:
@@ -63,11 +77,33 @@ class OptimizationWorker(QThread):
             )
 
             last_metrics: dict[str, float] = {}
-            for step_idx, metrics in optimizer.run(self._n_steps):
-                if self._stop_requested:
-                    break
-                last_metrics = metrics
-                self.step_completed.emit(step_idx, metrics, optimizer.mesh_snapshot())
+            if self._run_until_convergence:
+                step_idx = 0
+                while not self._stop_requested:
+                    self._wait_if_paused()
+                    if self._stop_requested:
+                        break
+                    step_idx += 1
+                    last_metrics = optimizer.step()
+                    self.step_completed.emit(
+                        step_idx,
+                        last_metrics,
+                        optimizer.mesh_snapshot(),
+                    )
+                    loss = last_metrics.get("loss", float("inf"))
+                    if loss <= self._convergence_threshold:
+                        break
+            else:
+                for step_idx in range(1, self._n_steps + 1):
+                    self._wait_if_paused()
+                    if self._stop_requested:
+                        break
+                    last_metrics = optimizer.step()
+                    self.step_completed.emit(
+                        step_idx,
+                        last_metrics,
+                        optimizer.mesh_snapshot(),
+                    )
 
             self.optimization_finished.emit(last_metrics)
         except Exception as exc:

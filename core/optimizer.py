@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import torch
 
-from core.loss import mse_loss, sds_loss
+from core.loss import masked_rgb_loss, sds_loss, silhouette_loss
 from core.renderer import DiffRenderer
 
 if TYPE_CHECKING:
@@ -123,6 +123,49 @@ def quantize_to_palette(image: torch.Tensor, palette: torch.Tensor) -> torch.Ten
     return pal[nearest].reshape_as(img)
 
 
+def foreground_mask_from_image(
+    image: str | Path | np.ndarray | torch.Tensor,
+    palette: torch.Tensor,
+    device: str = "cpu",
+) -> torch.Tensor:
+    """Estimate target foreground as pixels that differ from the corner background."""
+    img = image_to_tensor(image, device)
+    q = quantize_to_palette(img, palette)
+    h, w = q.shape[:2]
+    band = max(1, min(h, w) // 20)
+    corners = torch.cat([
+        img[:band, :band].reshape(-1, 3),
+        img[:band, -band:].reshape(-1, 3),
+        img[-band:, :band].reshape(-1, 3),
+        img[-band:, -band:].reshape(-1, 3),
+    ])
+    bg_rgb = corners.median(dim=0).values
+    pal = palette.to(device=img.device, dtype=img.dtype)
+    bg_idx = ((pal - bg_rgb.unsqueeze(0)) ** 2).sum(dim=1).argmin()
+    bg_color = pal[bg_idx]
+    mask = (((q - bg_color) ** 2).sum(dim=-1, keepdim=True) > 1e-6).float()
+    if float(mask.mean().detach().cpu()) < 1e-4:
+        distances = ((img - bg_rgb) ** 2).sum(dim=-1, keepdim=True)
+        mask = (distances > 0.02 ** 2).float()
+    return mask
+
+
+def snap_patches_to_palette(
+    patches: Sequence["Patch"],
+    palette: str | Sequence[str] | Sequence[Sequence[float]] | torch.Tensor | None,
+) -> torch.Tensor:
+    """Snap each patch albedo to the nearest palette colour."""
+    pal = palette if isinstance(palette, torch.Tensor) else parse_palette(palette)
+    with torch.no_grad():
+        for patch in patches:
+            patch_palette = pal.to(device=patch.albedo.device, dtype=patch.albedo.dtype)
+            rgb = patch.albedo.detach().clamp(0.0, 1.0)
+            idx = ((patch_palette - rgb.unsqueeze(0)) ** 2).sum(dim=1).argmin()
+            patch.albedo.copy_(patch_palette[idx])
+            patch.albedo.requires_grad_(False)
+    return pal
+
+
 def _parameter_groups(patches: Sequence["Patch"]) -> list[torch.nn.Parameter]:
     """Return learnable shape/orientation parameters, excluding albedo."""
     params: list[torch.nn.Parameter] = []
@@ -159,6 +202,7 @@ class SceneOptimizer:
         sds_pipe: Any | None = None,
         device: str = "cpu",
         n_per_segment: int = 20,
+        silhouette_weight: float = 2.0,
     ) -> None:
         if not patches:
             raise ValueError("SceneOptimizer requires at least one patch.")
@@ -171,26 +215,23 @@ class SceneOptimizer:
         self.view2_loss = view2_loss.lower()
         self.sds_prompt = sds_prompt
         self.sds_pipe = sds_pipe
+        self.silhouette_weight = silhouette_weight
 
         self.palette = parse_palette(palette).to(device)
         self.target1 = quantize_to_palette(image_to_tensor(target1, device), self.palette)
+        self.target1_mask = foreground_mask_from_image(target1, self.palette, device)
         self.target2 = (
             quantize_to_palette(image_to_tensor(target2, device), self.palette)
+            if target2 is not None else None
+        )
+        self.target2_mask = (
+            foreground_mask_from_image(target2, self.palette, device)
             if target2 is not None else None
         )
 
         self.renderer = renderer or DiffRenderer(device=device, n_per_segment=n_per_segment)
         self.optim = torch.optim.Adam(_parameter_groups(patches), lr=lr)
-        self._assign_patch_palette_colors()
-
-    def _assign_patch_palette_colors(self) -> None:
-        """Keep patch colours discrete by snapping their albedo to the palette."""
-        with torch.no_grad():
-            for patch in self.patches:
-                rgb = patch.albedo.detach().to(self.palette.device).clamp(0.0, 1.0)
-                idx = ((self.palette - rgb.unsqueeze(0)) ** 2).sum(dim=1).argmin()
-                patch.albedo.copy_(self.palette[idx].to(patch.albedo.device))
-                patch.albedo.requires_grad_(False)
+        snap_patches_to_palette(self.patches, self.palette)
 
     def step(self) -> dict[str, float]:
         self.optim.zero_grad(set_to_none=True)
@@ -202,14 +243,20 @@ class SceneOptimizer:
             self.resolution,
         )
 
-        loss1 = mse_loss(render1, self.target1)
+        loss1_rgb = masked_rgb_loss(render1, self.target1, self.target1_mask)
+        loss1_silhouette = silhouette_loss(render1, self.target1_mask)
+        loss1 = loss1_rgb + self.silhouette_weight * loss1_silhouette
         loss2 = torch.zeros((), device=loss1.device)
+        loss2_silhouette = torch.zeros((), device=loss1.device)
         if self.view2_loss.startswith("sds"):
             if not self.sds_prompt:
                 raise ValueError("SDS optimization requires a text prompt.")
             loss2 = sds_loss(render2[..., :3], self.sds_prompt, self.sds_pipe)
         elif self.target2 is not None:
-            loss2 = mse_loss(render2, self.target2)
+            assert self.target2_mask is not None
+            loss2_rgb = masked_rgb_loss(render2, self.target2, self.target2_mask)
+            loss2_silhouette = silhouette_loss(render2, self.target2_mask)
+            loss2 = loss2_rgb + self.silhouette_weight * loss2_silhouette
 
         loss = loss1 + loss2
         loss.backward()
@@ -220,6 +267,8 @@ class SceneOptimizer:
             "loss": float(loss.detach().cpu()),
             "view1_mse": float(loss1.detach().cpu()),
             "view2_loss": float(loss2.detach().cpu()),
+            "view1_silhouette": float(loss1_silhouette.detach().cpu()),
+            "view2_silhouette": float(loss2_silhouette.detach().cpu()),
         }
 
     def _post_step_constraints(self) -> None:
