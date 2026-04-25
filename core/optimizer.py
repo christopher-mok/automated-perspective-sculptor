@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from core.loss import masked_rgb_loss, sds_loss, silhouette_loss
 from core.renderer import DiffRenderer
@@ -113,6 +114,45 @@ def image_to_tensor(image: str | Path | np.ndarray | torch.Tensor, device: str =
     return t.clamp(0.0, 1.0)
 
 
+def fit_image_to_resolution(
+    image: str | Path | np.ndarray | torch.Tensor,
+    resolution: tuple[int, int],
+    device: str = "cpu",
+) -> torch.Tensor:
+    """Scale an image into a fixed canvas without changing its aspect ratio."""
+    img = image_to_tensor(image, device)
+    target_h, target_w = resolution
+    src_h, src_w = img.shape[:2]
+    if src_h <= 0 or src_w <= 0:
+        return torch.zeros(target_h, target_w, 3, device=device)
+
+    scale = min(target_w / src_w, target_h / src_h)
+    new_w = max(1, int(round(src_w * scale)))
+    new_h = max(1, int(round(src_h * scale)))
+
+    corners = torch.stack([
+        img[0, 0],
+        img[0, -1],
+        img[-1, 0],
+        img[-1, -1],
+    ])
+    background = corners.median(dim=0).values
+    canvas = background.view(1, 1, 3).expand(target_h, target_w, 3).clone()
+
+    resized = img.permute(2, 0, 1).unsqueeze(0)
+    resized = F.interpolate(
+        resized,
+        size=(new_h, new_w),
+        mode="bilinear",
+        align_corners=False,
+    ).squeeze(0).permute(1, 2, 0)
+
+    top = (target_h - new_h) // 2
+    left = (target_w - new_w) // 2
+    canvas[top:top + new_h, left:left + new_w] = resized
+    return canvas.clamp(0.0, 1.0)
+
+
 def quantize_to_palette(image: torch.Tensor, palette: torch.Tensor) -> torch.Tensor:
     """Map every pixel to the nearest user-selected colour."""
     img = image[..., :3]
@@ -127,9 +167,13 @@ def foreground_mask_from_image(
     image: str | Path | np.ndarray | torch.Tensor,
     palette: torch.Tensor,
     device: str = "cpu",
+    resolution: tuple[int, int] | None = None,
 ) -> torch.Tensor:
     """Estimate target foreground as pixels that differ from the corner background."""
-    img = image_to_tensor(image, device)
+    img = (
+        fit_image_to_resolution(image, resolution, device)
+        if resolution is not None else image_to_tensor(image, device)
+    )
     q = quantize_to_palette(img, palette)
     h, w = q.shape[:2]
     band = max(1, min(h, w) // 20)
@@ -172,10 +216,11 @@ def _parameter_groups(patches: Sequence["Patch"]) -> list[torch.nn.Parameter]:
     for patch in patches:
         params.extend([patch.center, patch.theta])
         for cp in patch.control_points:
+            cp.z.requires_grad_(False)
+            cp.z.grad = None
             params.extend([
                 cp.x,
                 cp.y,
-                cp.z,
                 cp.handle_scale,
                 cp.handle_rotation,
             ])
@@ -195,7 +240,7 @@ class SceneOptimizer:
         *,
         palette: str | Sequence[str] | Sequence[Sequence[float]] | None = None,
         renderer: DiffRenderer | None = None,
-        resolution: tuple[int, int] = (256, 256),
+        resolution: tuple[int, int] = (192, 256),
         lr: float = 1e-3,
         view2_loss: str = "mse",
         sds_prompt: str = "",
@@ -218,20 +263,30 @@ class SceneOptimizer:
         self.silhouette_weight = silhouette_weight
 
         self.palette = parse_palette(palette).to(device)
-        self.target1 = quantize_to_palette(image_to_tensor(target1, device), self.palette)
-        self.target1_mask = foreground_mask_from_image(target1, self.palette, device)
-        self.target2 = (
-            quantize_to_palette(image_to_tensor(target2, device), self.palette)
+        target1_fit = fit_image_to_resolution(target1, self.resolution, device)
+        self.target1 = quantize_to_palette(target1_fit, self.palette)
+        self.target1_mask = foreground_mask_from_image(
+            target1_fit,
+            self.palette,
+            device,
+        )
+        target2_fit = (
+            fit_image_to_resolution(target2, self.resolution, device)
             if target2 is not None else None
         )
+        self.target2 = (
+            quantize_to_palette(target2_fit, self.palette)
+            if target2_fit is not None else None
+        )
         self.target2_mask = (
-            foreground_mask_from_image(target2, self.palette, device)
-            if target2 is not None else None
+            foreground_mask_from_image(target2_fit, self.palette, device)
+            if target2_fit is not None else None
         )
 
         self.renderer = renderer or DiffRenderer(device=device, n_per_segment=n_per_segment)
         self.optim = torch.optim.Adam(_parameter_groups(patches), lr=lr)
         snap_patches_to_palette(self.patches, self.palette)
+        self._post_step_constraints()
 
     def step(self) -> dict[str, float]:
         self.optim.zero_grad(set_to_none=True)
@@ -279,7 +334,7 @@ class SceneOptimizer:
                 for cp in patch.control_points:
                     cp.x.data = torch.nan_to_num(cp.x.data, nan=0.0)
                     cp.y.data = torch.nan_to_num(cp.y.data, nan=0.0)
-                    cp.z.data = torch.nan_to_num(cp.z.data, nan=0.0).clamp(-0.25, 0.25)
+                    cp.z.data.zero_()
                     cp.handle_scale.data = torch.nan_to_num(cp.handle_scale.data, nan=0.01).clamp(0.01, 2.0)
                     cp.handle_rotation.data = torch.nan_to_num(cp.handle_rotation.data, nan=0.0)
 

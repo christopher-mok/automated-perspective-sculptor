@@ -219,6 +219,7 @@ class DiffRenderer:
         alpha = dr.antialias(alpha, rast, verts_clip, tris).clamp(0.0, 1.0)
         color_out = color_out * alpha
         rgba  = torch.cat([color_out, alpha], dim=-1)      # (1, H, W, 4)
+        rgba = torch.flip(rgba, dims=[1])                  # image convention: row 0 is top
 
         return rgba.squeeze(0)   # (H, W, 4)
 
