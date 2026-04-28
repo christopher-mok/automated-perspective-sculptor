@@ -14,7 +14,7 @@ At a high level:
 4. The user initializes patches through `core/initialization.py`.
 5. The patches are shown in the OpenGL viewport through `ui/viewport.py`.
 6. When optimization starts, `ui/worker.py` runs the optimizer in a background thread.
-7. `core/optimizer.py` renders the patches through `core/renderer.py`, computes losses through `core/loss.py`, applies optimization updates, applies post-step constraints, optionally asks `optimizer/patch_monitor.py` to restart unhealthy patches, and returns updated mesh snapshots.
+7. `core/optimizer.py` renders the patches through `core/renderer.py`, computes losses through `core/loss.py`, applies optimization updates, applies post-step constraints, and returns updated mesh snapshots.
 8. The UI receives progress updates and refreshes both the main viewport and the camera-preview images.
 
 The central data object is a `Patch` from `core/patch.py`. A patch stores its center, rotation, color, and local spline/control-point parameters. It can convert itself into a renderable mesh for both the differentiable renderer and the viewport.
@@ -48,13 +48,11 @@ Right-side control panel.
 - Initialization mode.
 - Device selection.
 - Loss type for view 2.
-- Learning rate.
+- Learning rate, defaulting to `2.75e-03`.
 - Fixed-step or convergence mode.
-- Step count and progress bar.
+- Step count, defaulting to `400`, and progress bar.
 - Convergence threshold.
 - Palette input.
-- Temperature slider and temperature schedule dropdown.
-- Patch restart checkbox, restart interval slider, and live restart count.
 - Run, pause, and reset buttons.
 
 ### `ui/image_panel.py`
@@ -130,18 +128,7 @@ Optimization logic.
 - Builds optimizer parameter groups.
 - Computes geometric penalties.
 - Applies Adam updates.
-- Applies temperature noise.
 - Applies hard post-step constraints.
-- Integrates patch health monitoring and restart checks.
-
-### `optimizer/patch_monitor.py`
-
-Patch health and restart system.
-
-- Tracks per-patch health history.
-- Flags edge-on, low-contribution, and plateaued patches.
-- Restarts unhealthy patches in high-error image regions.
-- Clears Adam state for restarted patch parameters.
 
 ### `ui/worker.py`
 
@@ -193,10 +180,8 @@ Each step:
 2. Computes image losses and geometry penalties.
 3. Backpropagates through differentiable patch parameters.
 4. Applies an Adam optimizer step.
-5. Adds decaying temperature noise.
-6. Applies hard post-step constraints.
-7. Updates patch health history and periodically restarts unhealthy patches.
-8. Returns a metrics dictionary.
+5. Applies hard post-step constraints.
+6. Returns a metrics dictionary.
 
 The worker emits the step number, metrics, and mesh snapshot. The main window updates the progress bar, viewport, camera previews, and status text.
 
@@ -347,7 +332,7 @@ Why it matters:
 How it works:
 
 - Validates that patches and a view 1 target exist.
-- Reads controls such as learning rate, steps, convergence threshold, palette, loss mode, temperature, and schedule.
+- Reads controls such as learning rate, steps, convergence threshold, palette, and loss mode.
 - Creates `OptimizationWorker`.
 - Connects worker signals.
 - Starts the thread.
@@ -466,7 +451,7 @@ Why it matters:
 
 How it works:
 
-- Saves patches, cameras, targets, palette, learning rate, steps, run mode, threshold, temperature, schedule, patch restart settings, loss mode, and device.
+- Saves patches, cameras, targets, palette, learning rate, steps, run mode, threshold, loss mode, and device.
 
 ### `request_stop()`
 
@@ -543,7 +528,6 @@ How it works:
 - Creates a `SceneOptimizer`.
 - In fixed-step mode, runs for the selected number of steps.
 - In convergence mode, runs until the loss reaches the threshold or the worker is stopped.
-- Passes patch restart enablement and restart interval into the optimizer.
 - Emits `step_completed`, `failed`, and `optimization_finished` signals.
 
 ## `core/initialization.py`
@@ -1562,53 +1546,6 @@ How it works:
 - Computes `abs(dot(patch_normal, camera_forward))`.
 - Penalizes values below `min_facing`.
 
-### `_temperature_scale(step, total, temperature, schedule)`
-
-What it does:
-
-- Computes the current perturbation scale for simulated annealing.
-
-Returns:
-
-- A Python float.
-
-Why it matters:
-
-- Controls how much random exploration is added after each optimizer step.
-
-How it works:
-
-- Converts step progress into `t = step / total`.
-- Applies one of three schedules:
-  - Linear: `temperature * (1 - t)`.
-  - Cosine: `temperature * 0.5 * (1 + cos(pi * t))`.
-  - Exponential: `temperature * exp(-5 * t)`.
-
-### `apply_temperature_noise(model, step, total_steps, temperature, schedule)`
-
-What it does:
-
-- Adds decaying random perturbations after each Adam step.
-
-Returns:
-
-- The scalar noise scale used for that step.
-
-Why it matters:
-
-- Acts like simulated annealing. Early steps explore broadly; later steps settle.
-
-How it works:
-
-- Runs under `torch.no_grad()`.
-- Applies Gaussian noise to:
-  - Position: `noise_scale * 0.1`.
-  - Theta: `noise_scale * 0.3`.
-  - Control points: `noise_scale * 0.05`.
-  - Handle scale: `noise_scale * 0.02`.
-  - Handle rotation: `noise_scale * 0.2`.
-- The optimizer then applies post-step constraints, including flattening local control point z values.
-
 ### `SceneOptimizer.__init__(...)`
 
 What it does:
@@ -1634,7 +1571,6 @@ How it works:
 - Builds Adam parameter groups.
 - Snaps initial colors to the palette.
 - Applies initial post-step constraints.
-- Creates a `PatchHealthMonitor` when patch restarts are enabled.
 
 ### `SceneOptimizer.step(step_idx=1, total_steps=1)`
 
@@ -1644,7 +1580,7 @@ What it does:
 
 Returns:
 
-- A metrics dictionary with values such as total loss, view losses, overlap penalty, visibility penalty, edge-on penalty, camera-bounds penalty, temperature, restarts this step, and total restarts.
+- A metrics dictionary with values such as total loss, view losses, overlap penalty, visibility penalty, edge-on penalty, and camera-bounds penalty.
 
 Why it matters:
 
@@ -1661,10 +1597,7 @@ How it works:
 - Calls `backward()`.
 - Calls Adam `step()`.
 - Clears gradients.
-- Applies temperature noise.
 - Applies post-step constraints.
-- Updates patch health history.
-- On restart interval steps, rerenders the current scene and asks the monitor to restart unhealthy patches.
 
 ### `SceneOptimizer._loss_from_renders(render1, render2, patches)`
 
@@ -1678,7 +1611,7 @@ Returns:
 
 Why it matters:
 
-- The main training step and the patch health monitor both need the same loss definition. This helper keeps them aligned.
+- The main training step needs one shared loss definition for rendered images and geometric penalties.
 
 How it works:
 
@@ -1686,27 +1619,6 @@ How it works:
 - Computes view 2 image or SDS loss.
 - Computes overlap, visibility, edge-on, and camera-bounds penalties for the supplied patch sequence.
 - Combines the weighted terms into the same total loss used for optimization.
-
-### `SceneOptimizer._evaluate_loss_value(patches)`
-
-What it does:
-
-- Evaluates the current total loss for an arbitrary subset of patches.
-
-Returns:
-
-- A Python float.
-
-Why it matters:
-
-- Patch contribution is measured by removing one patch and checking how much the total loss changes.
-
-How it works:
-
-- Runs under `torch.no_grad()`.
-- Renders the supplied patch subset from both cameras.
-- Calls `_loss_from_renders()`.
-- Converts the detached loss tensor to a float.
 
 ### `SceneOptimizer._post_step_constraints()`
 
@@ -1765,201 +1677,6 @@ How it works:
 
 - Calls `step()` repeatedly.
 - Invokes the callback after each step if provided.
-
-## `optimizer/patch_monitor.py`
-
-### `reset_optimizer_state(optimizer, patch)`
-
-What it does:
-
-- Clears Adam state for every tensor parameter owned by a restarted patch.
-
-Returns:
-
-- Nothing.
-
-Why it matters:
-
-- Adam stores momentum-like buffers. If those buffers are kept after a patch is moved, the optimizer can push the patch back toward its old degenerate state.
-
-How it works:
-
-- Collects the patch center, theta, and all control point parameters.
-- Removes each parameter entry from `optimizer.state`.
-
-### `_reset_patch_control_points(patch, radius=0.18)`
-
-What it does:
-
-- Resets a restarted patch's spline outline to the same rounded-pentagon style used by normal patch initialization.
-
-Returns:
-
-- Nothing.
-
-Why it matters:
-
-- Restarted patches should come back as usable pieces, not keep a distorted or collapsed outline from their previous optimization state.
-
-How it works:
-
-- Places control points evenly around a local circle.
-- Sets local z to zero.
-- Sets handle scale from the circular Bezier approximation formula.
-- Sets handle rotation tangent to the circle.
-
-### `_blur_error_map(error, kernel_size=15)`
-
-What it does:
-
-- Smooths a per-pixel error map.
-
-Returns:
-
-- A blurred 2D torch tensor.
-
-Why it matters:
-
-- Restart placement should target stable high-error regions, not isolated noisy pixels.
-
-How it works:
-
-- Builds a Gaussian kernel.
-- Applies it with `torch.nn.functional.conv2d`.
-
-### `_project_world_np(camera, point, resolution)`
-
-What it does:
-
-- Projects a candidate world-space restart point into a camera image.
-
-Returns:
-
-- A `(row, col)` pixel tuple, or `None` if the point is outside that camera view.
-
-Why it matters:
-
-- Restart placement samples candidate points inside the 5x5x5 box and needs to know which target-image error pixels those points correspond to.
-
-How it works:
-
-- Multiplies the world point by the camera projection-view matrix.
-- Converts clip coordinates to normalized device coordinates.
-- Rejects candidates outside the camera frame or clip range.
-- Converts valid normalized coordinates into image pixels.
-
-### `_placement_from_error_in_box(cameras, error_maps, resolution, placement_mask)`
-
-What it does:
-
-- Chooses a random restart position inside the same 5x5x5 box used by experimental initialization.
-
-Returns:
-
-- A tuple of `(world_point, representative_pixel)`.
-
-Why it matters:
-
-- Restarted patches stay inside the intended working volume while still moving toward high-loss image regions.
-
-How it works:
-
-- Samples thousands of random XYZ candidates inside `[-2.5, 2.5]` on each axis.
-- Projects each candidate into each camera view.
-- Rejects candidates that are not visible in every target camera being scored.
-- Scores each candidate by the blurred error map value at its projected pixels.
-- Applies the placement mask so multiple restarts in one check prefer different regions.
-- Returns the highest-scoring in-bounds candidate.
-
-### `restart_patch(...)`
-
-What it does:
-
-- Reinitializes one unhealthy patch at a high-error region.
-
-Returns:
-
-- The new world-space placement as a NumPy array.
-
-Why it matters:
-
-- Gives degenerate patches another chance to contribute to the image instead of staying hidden or stuck.
-
-How it works:
-
-- Computes RGB squared error for both current renders.
-- Blurs the error maps with a 15-pixel Gaussian kernel.
-- Masks out regions already covered by the other patches.
-- Masks out high-error regions already assigned to another restarted patch in the same check.
-- Randomly samples candidate positions inside the 5x5x5 box.
-- Scores candidates by where they project into the per-view error maps.
-- Chooses the highest-scoring in-bounds candidate.
-- Under `torch.no_grad()`, moves the patch, resets theta, and calls `_reset_patch_control_points()` to rebuild the local rounded-pentagon shape.
-- Calls `reset_optimizer_state()` for the restarted patch.
-- Logs the patch index, restart reasons, and placement to the console.
-
-### `PatchHealthMonitor.__init__(...)`
-
-What it does:
-
-- Creates the monitor state for one optimization run.
-
-Returns:
-
-- A `PatchHealthMonitor`.
-
-Why it matters:
-
-- Keeps restart settings, per-patch loss histories, last loss contributions, and total restart count together.
-
-How it works:
-
-- Stores patches, cameras, renderer, targets, optimizer, resolution, restart interval, thresholds, and history deques.
-
-### `PatchHealthMonitor.update(step_idx, rendered1, rendered2)`
-
-What it does:
-
-- Records per-patch image-error history for plateau detection.
-
-Returns:
-
-- Nothing.
-
-Why it matters:
-
-- Plateaued patches are flagged when their recent local image-error history has nearly no variation.
-
-How it works:
-
-- Computes per-view RGB error maps against the current targets.
-- Projects each patch center into each camera view.
-- Samples the error map at the projected patch center.
-- Appends the average sampled value into that patch's history deque.
-- Skips history updates when a patch center does not project into either view, so missing samples do not become fake zero-loss plateaus.
-
-### `PatchHealthMonitor.check_and_restart(...)`
-
-What it does:
-
-- Runs a health check and restarts a limited number of flagged patches.
-
-Returns:
-
-- The number of patches restarted in that check.
-
-Why it matters:
-
-- This is the main restart decision point used by `SceneOptimizer.step()`.
-
-How it works:
-
-- Runs only when `step_idx` is divisible by the restart interval.
-- Computes per-patch loss contribution by evaluating the total loss with each patch removed.
-- Flags patches that are edge-on to either camera, in the bottom 10 percent by contribution, or plateaued over the recent history window.
-- Caps restarts to 20 percent of patches per check.
-- Uses a shared placement mask so multiple restarts in the same check do not reuse the same error peak.
-- Calls `restart_patch()` for each selected patch and increments the total restart count.
 
 ## `ui/image_panel.py`
 
@@ -2275,85 +1992,7 @@ After every optimizer step, `_post_step_constraints()`:
 
 Why it matters:
 
-- Adam and temperature noise can produce invalid values. This pass keeps the patch parameterization usable.
-
-### Temperature perturbation schedule
-
-After Adam updates, the optimizer applies random noise through:
-
-```python
-apply_temperature_noise(model, step, total_steps, temperature, schedule)
-```
-
-This is a simulated-annealing-style perturbation.
-
-Schedules:
-
-```text
-Linear decay:      temperature * (1 - step / total)
-Cosine decay:      temperature * 0.5 * (1 + cos(pi * step / total))
-Exponential decay: temperature * exp(-5 * step / total)
-```
-
-Noise magnitudes:
-
-```text
-position:        noise_scale * 0.1
-theta:           noise_scale * 0.3
-control_points:  noise_scale * 0.05
-handle_scale:    noise_scale * 0.02
-handle_rotation: noise_scale * 0.2
-```
-
-Why it matters:
-
-- Early steps can escape poor local minima.
-- Later steps become more precise as the noise decays.
-
-### Patch health monitoring and restarts
-
-When enabled, `PatchHealthMonitor` runs alongside the optimizer.
-
-Health criteria:
-
-```text
-edge_on      = abs(dot(patch_normal, camera_forward)) < 0.1 for either camera
-low_use      = patch contribution is in the bottom 10 percent
-plateaued    = std(recent per-patch image-error history) < 1e-6
-restart_cap  = at most 20 percent of patches per check
-```
-
-Patch contribution is measured by temporarily evaluating the full loss with that patch removed:
-
-```text
-contribution_i = loss_without_patch_i - current_loss
-```
-
-Positive contribution means removing the patch makes the scene worse, so the patch is useful. Low or negative contribution means the patch is not helping much.
-
-Restart placement:
-
-```text
-view_error = mean((current_rendered_rgb - target_rgb)^2 over RGB)
-blurred_error = gaussian_blur(view_error, kernel_size=15)
-candidate_score = average(blurred_error_at_projected_pixel for each camera)
-candidate_xyz is sampled inside [-2.5, 2.5]^3
-```
-
-The monitor masks out areas already covered by the other patches, also masks regions already assigned to earlier restarts in the same health check, samples random candidate points inside the 5x5x5 working box, projects them into the camera views, and places the restarted patch at the highest-scoring candidate.
-
-Restarted parameters:
-
-- Patch center moves to the new world position.
-- Patch theta resets to zero.
-- Control points reset to the standard rounded-pentagon initialization.
-- Control point local z resets to zero as part of that shape reset.
-- Handle scale and rotation reset to tangent circular-approximation values.
-- Adam state for that patch is cleared.
-
-Why it matters:
-
-- This helps recover patches that become edge-on, invisible, or stuck in low-value configurations.
+- Adam can produce invalid values if gradients become unstable. This pass keeps the patch parameterization usable.
 
 ### Fixed steps versus convergence mode
 

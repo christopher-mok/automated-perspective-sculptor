@@ -27,10 +27,6 @@ class OptimizationWorker(QThread):
         palette: object,
         lr: float,
         n_steps: int,
-        initial_temperature: float,
-        temperature_schedule: str,
-        enable_patch_restarts: bool,
-        restart_interval: int,
         run_until_convergence: bool,
         convergence_threshold: float,
         view2_loss: str,
@@ -46,10 +42,6 @@ class OptimizationWorker(QThread):
         self._palette = palette
         self._lr = lr
         self._n_steps = n_steps
-        self._initial_temperature = initial_temperature
-        self._temperature_schedule = temperature_schedule
-        self._enable_patch_restarts = enable_patch_restarts
-        self._restart_interval = restart_interval
         self._run_until_convergence = run_until_convergence
         self._convergence_threshold = convergence_threshold
         self._view2_loss = view2_loss
@@ -79,10 +71,6 @@ class OptimizationWorker(QThread):
                 self._target2,
                 palette=self._palette,
                 lr=self._lr,
-                initial_temperature=self._initial_temperature,
-                temperature_schedule=self._temperature_schedule,
-                enable_patch_restarts=self._enable_patch_restarts,
-                restart_interval=self._restart_interval,
                 view2_loss=self._view2_loss,
                 sds_prompt=self._sds_prompt,
                 device=self._device,

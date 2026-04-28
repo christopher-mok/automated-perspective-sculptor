@@ -18,7 +18,6 @@ Typical use (from the UI worker)
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -29,7 +28,6 @@ import torch.nn.functional as F
 
 from core.loss import masked_rgb_loss, sds_loss, silhouette_loss
 from core.renderer import DiffRenderer
-from optimizer.patch_monitor import PatchHealthMonitor
 
 if TYPE_CHECKING:
     from core.patch import Patch
@@ -396,49 +394,6 @@ def patch_edge_on_loss(
     return torch.stack(losses).mean()
 
 
-def _temperature_scale(
-    step: int,
-    total_steps: int,
-    temperature: float,
-    schedule: str,
-) -> float:
-    total = max(1, total_steps)
-    t = min(max(step / total, 0.0), 1.0)
-    schedule_l = schedule.lower()
-
-    if "cosine" in schedule_l:
-        return temperature * 0.5 * (1.0 + math.cos(math.pi * t))
-    if "exponential" in schedule_l:
-        return temperature * math.exp(-5.0 * t)
-    return temperature * (1.0 - t)
-
-
-def apply_temperature_noise(
-    model,
-    step: int,
-    total_steps: int,
-    temperature: float,
-    schedule: str,
-) -> float:
-    """Apply post-step simulated-annealing noise to patch parameters."""
-    noise_scale = _temperature_scale(step, total_steps, temperature, schedule)
-    if noise_scale <= 0.0:
-        return 0.0
-
-    patches = model.patches if hasattr(model, "patches") else model
-    with torch.no_grad():
-        for patch in patches:
-            patch.center.add_(torch.randn_like(patch.center) * (noise_scale * 0.1))
-            patch.theta.add_(torch.randn_like(patch.theta) * (noise_scale * 0.3))
-            for cp in patch.control_points:
-                cp.x.add_(torch.randn_like(cp.x) * (noise_scale * 0.05))
-                cp.y.add_(torch.randn_like(cp.y) * (noise_scale * 0.05))
-                cp.z.add_(torch.randn_like(cp.z) * (noise_scale * 0.05))
-                cp.handle_scale.add_(torch.randn_like(cp.handle_scale) * (noise_scale * 0.02))
-                cp.handle_rotation.add_(torch.randn_like(cp.handle_rotation) * (noise_scale * 0.2))
-    return noise_scale
-
-
 class SceneOptimizer:
     """Render, compare to quantized target images, and Adam-step patches."""
 
@@ -471,10 +426,6 @@ class SceneOptimizer:
         min_camera_facing: float = 0.18,
         camera_bounds_weight: float = 0.3,
         camera_bounds_xy_limit: float = 0.98,
-        initial_temperature: float = 0.5,
-        temperature_schedule: str = "Linear decay",
-        enable_patch_restarts: bool = True,
-        restart_interval: int = 100,
     ) -> None:
         if not patches:
             raise ValueError("SceneOptimizer requires at least one patch.")
@@ -496,10 +447,6 @@ class SceneOptimizer:
         self.min_camera_facing = min_camera_facing
         self.camera_bounds_weight = camera_bounds_weight
         self.camera_bounds_xy_limit = camera_bounds_xy_limit
-        self.initial_temperature = initial_temperature
-        self.temperature_schedule = temperature_schedule
-        self.enable_patch_restarts = enable_patch_restarts
-        self.restart_interval = restart_interval
 
         self.palette = parse_palette(palette).to(device)
         target1_fit = fit_image_to_resolution(target1, self.resolution, device)
@@ -526,19 +473,6 @@ class SceneOptimizer:
         self.optim = torch.optim.Adam(_parameter_groups(patches), lr=lr)
         snap_patches_to_palette(self.patches, self.palette)
         self._post_step_constraints()
-        self.patch_monitor = (
-            PatchHealthMonitor(
-                self.patches,
-                (self.camera1, self.camera2),
-                self.renderer,
-                self.target1,
-                self.target2,
-                self.resolution,
-                self.optim,
-                restart_interval=restart_interval,
-            )
-            if enable_patch_restarts else None
-        )
 
     def step(self, step_idx: int = 1, total_steps: int = 1) -> dict[str, float]:
         self.optim.zero_grad(set_to_none=True)
@@ -554,43 +488,9 @@ class SceneOptimizer:
         loss.backward()
         self.optim.step()
         self.optim.zero_grad(set_to_none=True)
-        temperature_scale = apply_temperature_noise(
-            self,
-            step_idx,
-            total_steps,
-            self.initial_temperature,
-            self.temperature_schedule,
-        )
         self._post_step_constraints()
 
         loss_value = float(loss.detach().cpu())
-        restarted = 0
-        if self.patch_monitor is not None:
-            self.patch_monitor.update(step_idx, render1, render2)
-            if self.restart_interval > 0 and step_idx % self.restart_interval == 0:
-                with torch.no_grad():
-                    current_render1, current_render2 = self.renderer.render_both(
-                        self.patches,
-                        self.camera1,
-                        self.camera2,
-                        self.resolution,
-                    )
-                    current_loss, _ = self._loss_from_renders(
-                        current_render1,
-                        current_render2,
-                        self.patches,
-                    )
-                    current_loss_value = float(current_loss.detach().cpu())
-                restarted = self.patch_monitor.check_and_restart(
-                    step_idx,
-                    current_loss_value,
-                    self._evaluate_loss_value,
-                    current_render1,
-                    current_render2,
-                )
-                if restarted:
-                    self._post_step_constraints()
-
         return {
             "loss": loss_value,
             "view1_mse": float(components["loss1"].detach().cpu()),
@@ -601,11 +501,6 @@ class SceneOptimizer:
             "visibility": float(components["visibility"].detach().cpu()),
             "edge_on": float(components["edge_on"].detach().cpu()),
             "camera_bounds": float(components["camera_bounds"].detach().cpu()),
-            "temperature": temperature_scale,
-            "patch_restarts": float(restarted),
-            "patch_restarts_total": float(
-                self.patch_monitor.restart_count if self.patch_monitor is not None else 0
-            ),
         }
 
     def _loss_from_renders(
@@ -669,17 +564,6 @@ class SceneOptimizer:
             "edge_on": edge_on,
             "camera_bounds": camera_bounds,
         }
-
-    def _evaluate_loss_value(self, patches: Sequence["Patch"]) -> float:
-        with torch.no_grad():
-            render1, render2 = self.renderer.render_both(
-                list(patches),
-                self.camera1,
-                self.camera2,
-                self.resolution,
-            )
-            loss, _ = self._loss_from_renders(render1, render2, patches)
-            return float(loss.detach().cpu())
 
     def _post_step_constraints(self) -> None:
         with torch.no_grad():

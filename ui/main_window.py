@@ -235,10 +235,6 @@ class MainWindow(QMainWindow):
             palette=opt.palette,
             lr=opt.learning_rate,
             n_steps=opt.n_steps,
-            initial_temperature=opt.initial_temperature,
-            temperature_schedule=opt.temperature_schedule,
-            enable_patch_restarts=opt.enable_patch_restarts,
-            restart_interval=opt.restart_interval,
             run_until_convergence=opt.run_until_convergence,
             convergence_threshold=opt.convergence_threshold,
             view2_loss=view2_loss,
@@ -257,15 +253,11 @@ class MainWindow(QMainWindow):
         if opt.run_until_convergence:
             print(
                 f"[Optimization] started: until loss <= {opt.convergence_threshold:.3e}, "
-                f"lr={opt.learning_rate:.3e}, temp={opt.initial_temperature:.2f}, "
-                f"schedule={opt.temperature_schedule!r}, restarts={opt.enable_patch_restarts}, "
-                f"restart_interval={opt.restart_interval}, palette={opt.palette!r}"
+                f"lr={opt.learning_rate:.3e}, palette={opt.palette!r}"
             )
         else:
             print(
                 f"[Optimization] started: steps={opt.n_steps}, lr={opt.learning_rate:.3e}, "
-                f"temp={opt.initial_temperature:.2f}, schedule={opt.temperature_schedule!r}, "
-                f"restarts={opt.enable_patch_restarts}, restart_interval={opt.restart_interval}, "
                 f"palette={opt.palette!r}"
             )
 
@@ -277,9 +269,6 @@ class MainWindow(QMainWindow):
         if step_idx == 1 or step_idx % 10 == 0:
             loss = metrics.get("loss", 0.0) if isinstance(metrics, dict) else 0.0
             print(f"[Optimization] step={step_idx}, loss={loss:.6f}")
-        if isinstance(metrics, dict):
-            restarts_total = int(metrics.get("patch_restarts_total", 0))
-            self._controls.optimization.set_restart_count(restarts_total)
 
     def _on_pause_optimization(self, paused: bool) -> None:
         if self._worker is None or not self._worker.isRunning():

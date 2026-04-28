@@ -6,7 +6,6 @@ import math
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QGroupBox,
     QHBoxLayout,
@@ -249,7 +248,7 @@ class OptimizationSection(QGroupBox):
         layout.addWidget(self._sds_input)
 
         # Learning rate slider (log scale)
-        default_lr = 1e-3
+        default_lr = 2.75e-3
         self._lr_slider = QSlider(Qt.Orientation.Horizontal)
         self._lr_slider.setRange(0, _LR_STEPS)
         self._lr_slider.setValue(_lr_to_slider(default_lr))
@@ -272,54 +271,6 @@ class OptimizationSection(QGroupBox):
         layout.addLayout(lr_row)
         layout.addWidget(self._lr_slider)
 
-        # Temperature perturbation
-        self._temperature_slider, self._temperature_lbl = _labeled_slider(0, 100, 50, "{:.2f}")
-        self._temperature_lbl.setText("0.50")
-        self._temperature_slider.valueChanged.connect(
-            lambda v: self._temperature_lbl.setText(f"{v / 100.0:.2f}")
-        )
-        temp_row = QHBoxLayout()
-        temp_lbl = QLabel("Temperature")
-        temp_lbl.setStyleSheet(_LABEL_STYLE)
-        temp_row.addWidget(temp_lbl)
-        temp_row.addStretch()
-        temp_row.addWidget(self._temperature_lbl)
-        layout.addLayout(temp_row)
-        layout.addWidget(self._temperature_slider)
-
-        self._temperature_schedule_combo = QComboBox()
-        self._temperature_schedule_combo.addItems([
-            "Linear decay",
-            "Cosine decay",
-            "Exponential decay",
-        ])
-        self._temperature_schedule_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
-        layout.addLayout(_row("Temperature schedule", self._temperature_schedule_combo))
-
-        # Patch restart controls
-        self._patch_restarts_checkbox = QCheckBox("Enable patch restarts")
-        self._patch_restarts_checkbox.setChecked(True)
-        self._patch_restarts_checkbox.setStyleSheet("color: #aaa; font-size: 12px;")
-        self._patch_restarts_checkbox.toggled.connect(self._on_patch_restarts_toggled)
-        layout.addWidget(self._patch_restarts_checkbox)
-
-        self._restart_interval_slider, self._restart_interval_lbl = _labeled_slider(50, 500, 100, "{}")
-        self._restart_interval_slider.valueChanged.connect(
-            lambda v: self._restart_interval_lbl.setText(str(v))
-        )
-        restart_row = QHBoxLayout()
-        restart_lbl = QLabel("Restart check interval")
-        restart_lbl.setStyleSheet(_LABEL_STYLE)
-        restart_row.addWidget(restart_lbl)
-        restart_row.addStretch()
-        restart_row.addWidget(self._restart_interval_lbl)
-        layout.addLayout(restart_row)
-        layout.addWidget(self._restart_interval_slider)
-
-        self._restart_count_lbl = QLabel("Patch restarts: 0")
-        self._restart_count_lbl.setStyleSheet("color: #888; font-size: 11px;")
-        layout.addWidget(self._restart_count_lbl)
-
         # Run mode
         self._run_mode_combo = QComboBox()
         self._run_mode_combo.addItems(["Fixed steps", "Until convergence"])
@@ -328,7 +279,7 @@ class OptimizationSection(QGroupBox):
         layout.addLayout(_row("Run mode", self._run_mode_combo))
 
         # Step count
-        self._steps_slider, self._steps_lbl = _labeled_slider(1, 1000, 200, "{}")
+        self._steps_slider, self._steps_lbl = _labeled_slider(1, 1000, 400, "{}")
         self._steps_slider.valueChanged.connect(
             lambda v: self._steps_lbl.setText(str(v))
         )
@@ -460,9 +411,6 @@ class OptimizationSection(QGroupBox):
         self._pause_btn.setText("Resume" if paused else "Pause")
         self.pause_toggled.emit(paused)
 
-    def _on_patch_restarts_toggled(self, enabled: bool) -> None:
-        self._restart_interval_slider.setEnabled(enabled)
-
     @property
     def learning_rate(self) -> float:
         return _slider_to_lr(self._lr_slider.value())
@@ -470,22 +418,6 @@ class OptimizationSection(QGroupBox):
     @property
     def n_steps(self) -> int:
         return self._steps_slider.value()
-
-    @property
-    def initial_temperature(self) -> float:
-        return self._temperature_slider.value() / 100.0
-
-    @property
-    def temperature_schedule(self) -> str:
-        return self._temperature_schedule_combo.currentText()
-
-    @property
-    def enable_patch_restarts(self) -> bool:
-        return self._patch_restarts_checkbox.isChecked()
-
-    @property
-    def restart_interval(self) -> int:
-        return self._restart_interval_slider.value()
 
     @property
     def run_until_convergence(self) -> bool:
@@ -518,10 +450,6 @@ class OptimizationSection(QGroupBox):
         for widget in (
             self._loss_combo,
             self._lr_slider,
-            self._temperature_slider,
-            self._temperature_schedule_combo,
-            self._patch_restarts_checkbox,
-            self._restart_interval_slider,
             self._run_mode_combo,
             self._steps_slider,
             self._threshold_slider,
@@ -538,15 +466,11 @@ class OptimizationSection(QGroupBox):
         self._progress_bar.setRange(0, self._steps_slider.value())
         self._progress_bar.setValue(0)
         self._progress_bar.setFormat(f"0 / {self._steps_slider.value()}")
-        self.set_restart_count(0)
 
     def set_progress(self, step: int) -> None:
         total = self._steps_slider.value()
         self._progress_bar.setValue(min(step, total))
         self._progress_bar.setFormat(f"{min(step, total)} / {total}")
-
-    def set_restart_count(self, count: int) -> None:
-        self._restart_count_lbl.setText(f"Patch restarts: {count}")
 
 
 # ---------------------------------------------------------------------------
