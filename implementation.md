@@ -608,7 +608,7 @@ Why it matters:
 How it works:
 
 - Samples X, Y, and Z inside the experimental box.
-- Samples theta over a wider range.
+- Samples theta only from bands at least 15 degrees away from either camera yaw.
 - Chooses an adaptive patch radius based on patch count and box volume.
 
 ### `init_sam(...)`
@@ -1490,61 +1490,27 @@ How it works:
 - Penalizes depth values outside the camera clip range.
 - Penalizes points behind the camera.
 
-### `_camera_forward_tensor(camera, device)`
+### `constrain_theta_to_camera_band(theta, camera_angles, margin)`
 
 What it does:
 
-- Computes a camera's forward viewing direction.
+- Projects a patch rotation into the allowed angular bands.
 
 Returns:
 
-- A normalized 3D tensor.
+- A Python float theta value.
 
 Why it matters:
 
-- Edge-on penalties compare patch normals against camera directions.
+- This replaces the old edge-on penalty with a hard constraint. A patch cannot remain within 15 degrees of either camera yaw, which prevents edge-on degenerate orientations without adding another soft loss term.
 
 How it works:
 
-- Subtracts camera position from target.
-- Normalizes the result.
-
-### `_patch_normal(patch)`
-
-What it does:
-
-- Computes the world-space normal of a patch.
-
-Returns:
-
-- A normalized 3D tensor.
-
-Why it matters:
-
-- Used to detect edge-on camera angles.
-
-How it works:
-
-- Uses the patch rotation matrix to transform the local normal into world space.
-
-### `patch_edge_on_loss(patches, cameras, min_facing)`
-
-What it does:
-
-- Penalizes patch orientations that are too edge-on to the cameras.
-
-Returns:
-
-- A scalar torch tensor.
-
-Why it matters:
-
-- Reduces cases where the optimizer hides pieces by rotating them nearly parallel to the view direction.
-
-How it works:
-
-- Computes `abs(dot(patch_normal, camera_forward))`.
-- Penalizes values below `min_facing`.
+- Wraps theta into a half-turn range because opposite patch normals represent the same flat piece orientation.
+- Computes camera yaw angles from camera position relative to target.
+- If theta is already at least `margin` away from every camera yaw, it is kept.
+- Otherwise, theta is moved to the nearest valid boundary.
+- With cameras at 0 and 90 degrees and a 15 degree margin, the allowed bands are `[-75, -15]` and `[15, 75]` degrees.
 
 ### `SceneOptimizer.__init__(...)`
 
@@ -1580,7 +1546,7 @@ What it does:
 
 Returns:
 
-- A metrics dictionary with values such as total loss, view losses, overlap penalty, visibility penalty, edge-on penalty, and camera-bounds penalty.
+- A metrics dictionary with values such as total loss, view losses, overlap penalty, visibility penalty, and camera-bounds penalty.
 
 Why it matters:
 
@@ -1592,12 +1558,13 @@ How it works:
 - Renders view 1 and view 2.
 - Computes RGB and silhouette losses.
 - Computes optional view 2 SDS loss or image loss.
-- Computes overlap, visibility, edge-on, and camera-bounds penalties.
+- Computes overlap, visibility, and camera-bounds penalties.
 - Combines all terms into one scalar total loss.
 - Calls `backward()`.
 - Calls Adam `step()`.
 - Clears gradients.
 - Applies post-step constraints.
+- Enforces the camera-angle theta constraint during post-step constraints.
 
 ### `SceneOptimizer._loss_from_renders(render1, render2, patches)`
 
@@ -1617,7 +1584,7 @@ How it works:
 
 - Computes view 1 masked RGB and silhouette losses.
 - Computes view 2 image or SDS loss.
-- Computes overlap, visibility, edge-on, and camera-bounds penalties for the supplied patch sequence.
+- Computes overlap, visibility, and camera-bounds penalties for the supplied patch sequence.
 - Combines the weighted terms into the same total loss used for optimization.
 
 ### `SceneOptimizer._post_step_constraints()`
@@ -1896,17 +1863,6 @@ Significance:
 
 - Prevents patches from disappearing by becoming too small or nearly invisible from the cameras.
 
-### Edge-on angle penalty
-
-```text
-facing = abs(dot(patch_normal, camera_forward))
-edge_on_loss = mean(relu(min_camera_facing - facing)^2)
-```
-
-Significance:
-
-- Discourages degenerate orientations where pieces turn edge-on to avoid contributing to a view.
-
 ### Camera-bounds penalty
 
 ```text
@@ -1932,7 +1888,6 @@ total_loss =
   + view2_loss
   + overlap_weight * overlap_loss
   + visibility_weight * visibility_loss
-  + edge_on_weight * edge_on_loss
   + camera_bounds_weight * camera_bounds_loss
 ```
 
@@ -1941,12 +1896,12 @@ Current important weights are set in `SceneOptimizer.__init__()`:
 - `silhouette_weight`
 - `overlap_weight`
 - `visibility_weight`
-- `edge_on_weight`
 - `camera_bounds_weight`
 - `camera_bounds_xy_limit`
 - `min_projected_area`
-- `min_camera_facing`
 - `overlap_margin`
+
+The edge-on behavior is handled as a hard theta constraint, not a loss term.
 
 ## Optimization Methods
 
@@ -1986,6 +1941,7 @@ Why it matters:
 After every optimizer step, `_post_step_constraints()`:
 
 - Removes NaNs.
+- Constrains patch theta to stay at least 15 degrees away from each camera yaw.
 - Forces local control point z values to zero.
 - Clamps handle scale.
 - Snaps albedo to the palette.

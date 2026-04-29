@@ -33,6 +33,7 @@ _DEFAULT_BOUNDS: tuple[float, float, float, float] = (-2.0, 2.0, -2.0, 2.0)
 _DEFAULT_RADIUS: float = 0.18   # spline radius in local patch units
 _DEFAULT_Y:      float = 0.0
 _EXPERIMENTAL_BOX_SIZE: float = 5.0
+_THETA_CAMERA_MARGIN: float = math.radians(15.0)
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +95,46 @@ def _make_patch(
         device=device,
         label=label,
     )
+
+
+def _wrap_theta_half_turn(theta: float) -> float:
+    """Wrap a Y rotation to [-pi/2, pi/2), treating theta and theta+pi as equivalent."""
+    return ((theta + math.pi * 0.5) % math.pi) - math.pi * 0.5
+
+
+def _theta_distance(a: float, b: float) -> float:
+    return abs(_wrap_theta_half_turn(a - b))
+
+
+def _camera_yaw_angles(cameras: list["Camera"] | None) -> list[float]:
+    if not cameras:
+        return [0.0, math.pi * 0.5]
+    angles: list[float] = []
+    for camera in cameras:
+        offset = camera.position - camera.target
+        angles.append(_wrap_theta_half_turn(float(math.atan2(offset[0], offset[2]))))
+    return angles
+
+
+def _theta_allowed(
+    theta: float,
+    camera_angles: list[float],
+    margin: float = _THETA_CAMERA_MARGIN,
+) -> bool:
+    return all(_theta_distance(theta, angle) >= margin for angle in camera_angles)
+
+
+def _sample_allowed_theta(
+    rng: np.random.Generator,
+    camera_angles: list[float],
+    margin: float = _THETA_CAMERA_MARGIN,
+) -> float:
+    """Sample theta from the bands between camera edge-on exclusion zones."""
+    for _ in range(128):
+        theta = float(rng.uniform(-math.pi * 0.5, math.pi * 0.5))
+        if _theta_allowed(theta, camera_angles, margin):
+            return theta
+    return math.radians(45.0)
 
 
 # ---------------------------------------------------------------------------
@@ -207,13 +248,14 @@ def init_experimental(
     sample_max = np.array([half, half, half], dtype=np.float32)
     extents = sample_max - sample_min
     patch_radius = max(radius, float(np.cbrt(np.prod(extents) / max(n_patches, 1)) * 0.16))
+    camera_angles = _camera_yaw_angles(cameras)
 
     patches: list[Patch] = []
     for i in range(n_patches):
         point = rng.uniform(sample_min, sample_max).astype(np.float32)
         patches.append(_make_patch(
             center=point.tolist(),
-            theta=float(rng.uniform(0.0, math.pi)),
+            theta=_sample_allowed_theta(rng, camera_angles),
             radius=patch_radius,
             device=device,
             label=f"patch_{i:04d}",

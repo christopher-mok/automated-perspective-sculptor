@@ -39,6 +39,7 @@ DEFAULT_PALETTE: tuple[tuple[float, float, float], ...] = (
     (0.95, 0.95, 0.95),
     (0.05, 0.05, 0.05),
 )
+THETA_CAMERA_MARGIN: float = np.deg2rad(15.0)
 
 
 def parse_palette(text: str | Sequence[str] | Sequence[Sequence[float]] | None) -> torch.Tensor:
@@ -360,38 +361,56 @@ def patch_camera_bounds_loss(
     return torch.stack(losses).mean()
 
 
-def _camera_forward_tensor(camera: "Camera", device: str, dtype: torch.dtype) -> torch.Tensor:
-    forward_np = camera.target - camera.position
-    forward_np = forward_np / max(float(np.linalg.norm(forward_np)), 1e-8)
-    return torch.from_numpy(forward_np).to(device=device, dtype=dtype)
+def _wrap_theta_half_turn(theta: float) -> float:
+    """Wrap a Y rotation to [-pi/2, pi/2), treating theta and theta+pi as equivalent."""
+    return ((theta + np.pi * 0.5) % np.pi) - np.pi * 0.5
 
 
-def _patch_normal(patch: "Patch") -> torch.Tensor:
-    normal = patch.rotation_matrix() @ patch.center.new_tensor([0.0, 0.0, 1.0])
-    return normal / torch.linalg.norm(normal).clamp_min(1e-8)
+def _theta_distance(a: float, b: float) -> float:
+    """Shortest angular distance when opposite patch normals are equivalent."""
+    return abs(_wrap_theta_half_turn(a - b))
 
 
-def patch_edge_on_loss(
-    patches: Sequence["Patch"],
-    cameras: Sequence["Camera"],
-    min_facing: float = 0.18,
-) -> torch.Tensor:
-    """Soft penalty for patches that become nearly edge-on to a camera."""
-    if not patches:
-        return torch.zeros(())
+def _camera_yaw_angles(cameras: Sequence["Camera"]) -> list[float]:
+    """Camera yaw angles in the same theta convention used by Patch."""
+    angles: list[float] = []
+    for camera in cameras:
+        offset = camera.position - camera.target
+        angles.append(_wrap_theta_half_turn(float(np.arctan2(offset[0], offset[2]))))
+    return angles
 
-    losses: list[torch.Tensor] = []
-    for patch in patches:
-        normal = _patch_normal(patch)
-        for camera in cameras:
-            forward = _camera_forward_tensor(camera, str(normal.device), normal.dtype)
-            facing = torch.abs(torch.dot(normal, forward))
-            shortfall = torch.relu(facing.new_tensor(min_facing) - facing)
-            losses.append((shortfall / max(min_facing, 1e-8)) ** 2)
 
-    if not losses:
-        return torch.zeros((), device=patches[0].center.device)
-    return torch.stack(losses).mean()
+def theta_allowed(
+    theta: float,
+    camera_angles: Sequence[float],
+    margin: float = THETA_CAMERA_MARGIN,
+) -> bool:
+    """Return True when theta is at least margin radians away from every camera yaw."""
+    return all(_theta_distance(theta, angle) >= margin for angle in camera_angles)
+
+
+def constrain_theta_to_camera_band(
+    theta: float,
+    camera_angles: Sequence[float],
+    margin: float = THETA_CAMERA_MARGIN,
+) -> float:
+    """Project theta to the nearest orientation outside the camera edge-on margin."""
+    theta = _wrap_theta_half_turn(theta)
+    if theta_allowed(theta, camera_angles, margin):
+        return theta
+
+    candidates: list[float] = []
+    for angle in camera_angles:
+        candidates.append(_wrap_theta_half_turn(angle - margin))
+        candidates.append(_wrap_theta_half_turn(angle + margin))
+
+    valid = [
+        candidate for candidate in candidates
+        if theta_allowed(candidate, camera_angles, margin * 0.999)
+    ]
+    if not valid:
+        valid = candidates
+    return min(valid, key=lambda candidate: _theta_distance(theta, candidate))
 
 
 class SceneOptimizer:
@@ -422,8 +441,7 @@ class SceneOptimizer:
         # min_projected_area: float = 0.0015,
         visibility_weight: float = 2,
         min_projected_area: float = 0.01,
-        edge_on_weight: float = 0.02,
-        min_camera_facing: float = 0.18,
+        theta_camera_margin: float = THETA_CAMERA_MARGIN,
         camera_bounds_weight: float = 0.3,
         camera_bounds_xy_limit: float = 0.98,
     ) -> None:
@@ -443,8 +461,8 @@ class SceneOptimizer:
         self.overlap_margin = overlap_margin
         self.visibility_weight = visibility_weight
         self.min_projected_area = min_projected_area
-        self.edge_on_weight = edge_on_weight
-        self.min_camera_facing = min_camera_facing
+        self.theta_camera_margin = theta_camera_margin
+        self.theta_camera_angles = _camera_yaw_angles((camera1, camera2))
         self.camera_bounds_weight = camera_bounds_weight
         self.camera_bounds_xy_limit = camera_bounds_xy_limit
 
@@ -499,7 +517,6 @@ class SceneOptimizer:
             "view2_silhouette": float(components["loss2_silhouette"].detach().cpu()),
             "overlap": float(components["overlap"].detach().cpu()),
             "visibility": float(components["visibility"].detach().cpu()),
-            "edge_on": float(components["edge_on"].detach().cpu()),
             "camera_bounds": float(components["camera_bounds"].detach().cpu()),
         }
 
@@ -531,11 +548,6 @@ class SceneOptimizer:
                 (self.camera1, self.camera2),
                 self.min_projected_area,
             )
-            edge_on = patch_edge_on_loss(
-                patches,
-                (self.camera1, self.camera2),
-                self.min_camera_facing,
-            )
             camera_bounds = patch_camera_bounds_loss(
                 patches,
                 (self.camera1, self.camera2),
@@ -544,14 +556,12 @@ class SceneOptimizer:
         else:
             overlap = torch.zeros((), device=loss1.device)
             visibility = torch.zeros((), device=loss1.device)
-            edge_on = torch.zeros((), device=loss1.device)
             camera_bounds = torch.zeros((), device=loss1.device)
         loss = (
             loss1
             + loss2
             + self.overlap_weight * overlap
             + self.visibility_weight * visibility
-            + self.edge_on_weight * edge_on
             + self.camera_bounds_weight * camera_bounds
         )
         return loss, {
@@ -561,7 +571,6 @@ class SceneOptimizer:
             "loss2_silhouette": loss2_silhouette,
             "overlap": overlap,
             "visibility": visibility,
-            "edge_on": edge_on,
             "camera_bounds": camera_bounds,
         }
 
@@ -570,6 +579,12 @@ class SceneOptimizer:
             for patch in self.patches:
                 patch.center.data = torch.nan_to_num(patch.center.data, nan=0.0)
                 patch.theta.data = torch.nan_to_num(patch.theta.data, nan=0.0)
+                constrained_theta = constrain_theta_to_camera_band(
+                    float(patch.theta.detach().cpu()),
+                    self.theta_camera_angles,
+                    self.theta_camera_margin,
+                )
+                patch.theta.copy_(patch.theta.new_tensor(constrained_theta))
                 for cp in patch.control_points:
                     cp.x.data = torch.nan_to_num(cp.x.data, nan=0.0)
                     cp.y.data = torch.nan_to_num(cp.y.data, nan=0.0)
