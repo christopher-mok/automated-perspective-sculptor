@@ -268,7 +268,22 @@ class MainWindow(QMainWindow):
             self._controls.optimization.set_progress(step_idx)
         if step_idx == 1 or step_idx % 10 == 0:
             loss = metrics.get("loss", 0.0) if isinstance(metrics, dict) else 0.0
-            print(f"[Optimization] step={step_idx}, loss={loss:.6f}")
+            if isinstance(metrics, dict):
+                print(
+                    f"[Optimization] step={step_idx}, loss={loss:.6f}, "
+                    f"terms(avg): view1={metrics.get('view1_mse', 0.0):.6f}, "
+                    f"view2={metrics.get('view2_loss', 0.0):.6f}, "
+                    f"view1_sil={metrics.get('view1_silhouette', 0.0):.6f}, "
+                    f"view2_sil={metrics.get('view2_silhouette', 0.0):.6f}, "
+                    f"overlap={metrics.get('overlap', 0.0):.6f}, "
+                    f"visibility={metrics.get('visibility', 0.0):.6f}, "
+                    f"camera_bounds={metrics.get('camera_bounds', 0.0):.6f}; "
+                    f"weighted: overlap={metrics.get('overlap_weighted', 0.0):.6f}, "
+                    f"visibility={metrics.get('visibility_weighted', 0.0):.6f}, "
+                    f"camera_bounds={metrics.get('camera_bounds_weighted', 0.0):.6f}"
+                )
+            else:
+                print(f"[Optimization] step={step_idx}, loss={loss:.6f}")
 
     def _on_pause_optimization(self, paused: bool) -> None:
         if self._worker is None or not self._worker.isRunning():

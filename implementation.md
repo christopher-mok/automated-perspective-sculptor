@@ -350,13 +350,14 @@ Returns:
 Why it matters:
 
 - Keeps the UI synchronized with the background optimizer.
+- Prints the total loss plus per-term average losses for debugging on the same cadence as the existing progress log.
 
 How it works:
 
 - Sends mesh snapshots to the viewport.
 - Updates camera previews.
 - Updates the fixed-step progress bar.
-- Logs periodic loss values in the status bar.
+- Logs periodic total loss, raw per-term averages, and weighted geometric penalty contributions.
 
 ### `_on_pause_optimization(paused)`
 
@@ -1546,7 +1547,7 @@ What it does:
 
 Returns:
 
-- A metrics dictionary with values such as total loss, view losses, overlap penalty, visibility penalty, and camera-bounds penalty.
+- A metrics dictionary with values such as total loss, view losses, overlap penalty, visibility penalty, camera-bounds penalty, and weighted geometric penalty contributions.
 
 Why it matters:
 

@@ -518,6 +518,9 @@ class SceneOptimizer:
             "overlap": float(components["overlap"].detach().cpu()),
             "visibility": float(components["visibility"].detach().cpu()),
             "camera_bounds": float(components["camera_bounds"].detach().cpu()),
+            "overlap_weighted": float((self.overlap_weight * components["overlap"]).detach().cpu()),
+            "visibility_weighted": float((self.visibility_weight * components["visibility"]).detach().cpu()),
+            "camera_bounds_weighted": float((self.camera_bounds_weight * components["camera_bounds"]).detach().cpu()),
         }
 
     def _loss_from_renders(
