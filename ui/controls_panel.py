@@ -103,7 +103,7 @@ class PatchesSection(QGroupBox):
 
         # Initialization dropdown
         self._init_combo = QComboBox()
-        self._init_combo.addItems(["SAM segmentation", "Grid", "Random", "Experimental"])
+        self._init_combo.addItems(["Experimental", "SAM segmentation"])
         self._init_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
         self._init_combo.currentTextChanged.connect(self._on_mode_changed)
         layout.addLayout(_row("Initialization", self._init_combo))
@@ -218,7 +218,6 @@ def _threshold_to_slider(threshold: float) -> int:
 class OptimizationSection(QGroupBox):
     run_requested = pyqtSignal()
     pause_toggled = pyqtSignal(bool)
-    palette_changed = pyqtSignal()
     reset_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -359,19 +358,6 @@ class OptimizationSection(QGroupBox):
         srd_layout.addWidget(self._srd_status_lbl)
         layout.addWidget(self._srd_group)
 
-        # Discrete colour palette
-        palette_lbl = QLabel("Palette")
-        palette_lbl.setStyleSheet(_LABEL_STYLE)
-        self._palette_input = QLineEdit()
-        self._palette_input.setText("#111111, #f5f5f5")
-        self._palette_input.setPlaceholderText("#111111, #f4d35e, #2f6690")
-        self._palette_input.setStyleSheet(
-            "color: #ddd; background: #2a2a2a; border: 1px solid #444; border-radius: 3px; padding: 4px;"
-        )
-        self._palette_input.editingFinished.connect(self.palette_changed.emit)
-        layout.addWidget(palette_lbl)
-        layout.addWidget(self._palette_input)
-
         # Run button
         self._run_btn = QPushButton("Run optimization")
         self._run_btn.setStyleSheet(
@@ -464,10 +450,6 @@ class OptimizationSection(QGroupBox):
         return _slider_to_threshold(self._threshold_slider.value())
 
     @property
-    def palette(self) -> str:
-        return self._palette_input.text()
-
-    @property
     def loss_type(self) -> str:
         return self._loss_combo.currentText()
 
@@ -497,7 +479,6 @@ class OptimizationSection(QGroupBox):
             self._run_mode_combo,
             self._steps_slider,
             self._threshold_slider,
-            self._palette_input,
             self._srd_enabled,
             self._count_penalty_slider,
         ):

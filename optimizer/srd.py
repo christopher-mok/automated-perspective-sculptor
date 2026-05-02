@@ -490,6 +490,12 @@ class StochasticRewriteDescent:
                 self.deleted_history.append(patch.to_dict())
                 self.stats.deleted += 1
                 self.stats.total_deleted += 1
+                pos = patch.center.detach().cpu().numpy()
+                print(
+                    f"[SRD rewrite] deleted patch={rewrite.patch_index}, "
+                    f"position=({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}), "
+                    f"reason={rewrite.reason or 'accepted rewrite'}"
+                )
             return
 
         if rewrite.kind == "split":
@@ -505,6 +511,11 @@ class StochasticRewriteDescent:
                 self.deleted_history.append(patch.to_dict())
                 self.stats.added += 1
                 self.stats.total_added += 1
+                print(
+                    f"[SRD rewrite] split patch={rewrite.patch_index}, "
+                    f"children={len(model.patches) - 2},{len(model.patches) - 1}, "
+                    f"improvement={rewrite.improvement:.6f}"
+                )
             return
 
         if rewrite.kind == "restore" and rewrite.patch_state is not None:
@@ -515,13 +526,19 @@ class StochasticRewriteDescent:
             if not tentative:
                 self.stats.added += 1
                 self.stats.total_added += 1
+                pos = patch.center.detach().cpu().numpy()
+                print(
+                    f"[SRD rewrite] restored patch={rewrite.applied_index}, "
+                    f"position=({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}), "
+                    f"improvement={rewrite.improvement:.6f}"
+                )
             return
 
         if rewrite.position is None:
             return
         if len(model.patches) >= self.max_patches:
             return
-        palette_color = model.palette[-1].detach().cpu().numpy().tolist()
+        palette_color = [1.0, 1.0, 1.0]
         patch = _near_zero_patch(
             rewrite.position,
             model.device,
@@ -534,6 +551,12 @@ class StochasticRewriteDescent:
         if not tentative:
             self.stats.added += 1
             self.stats.total_added += 1
+            pos = patch.center.detach().cpu().numpy()
+            print(
+                f"[SRD rewrite] added patch={rewrite.applied_index}, "
+                f"position=({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}), "
+                f"improvement={rewrite.improvement:.6f}"
+            )
 
     def _save_state(self, model, optimizer: torch.optim.Optimizer) -> tuple[list[dict], dict]:
         return [patch.to_dict() for patch in model.patches], copy.deepcopy(optimizer.state_dict())

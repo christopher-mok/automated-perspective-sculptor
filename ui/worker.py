@@ -24,7 +24,6 @@ class OptimizationWorker(QThread):
         cameras: list,
         target1: object,
         target2: object | None,
-        palette: object,
         lr: float,
         n_steps: int,
         enable_srd: bool,
@@ -41,7 +40,6 @@ class OptimizationWorker(QThread):
         self._cameras = cameras
         self._target1 = target1
         self._target2 = target2
-        self._palette = palette
         self._lr = lr
         self._n_steps = n_steps
         self._enable_srd = enable_srd
@@ -73,7 +71,6 @@ class OptimizationWorker(QThread):
                 self._cameras[1],
                 self._target1,
                 self._target2,
-                palette=self._palette,
                 lr=self._lr,
                 enable_srd=self._enable_srd,
                 lambda_count=self._patch_count_penalty,

@@ -152,7 +152,6 @@ class MainWindow(QMainWindow):
         self._controls.patches.initialize_requested.connect(self._on_initialize)
         self._controls.optimization.run_requested.connect(self._on_run_optimization)
         self._controls.optimization.pause_toggled.connect(self._on_pause_optimization)
-        self._controls.optimization.palette_changed.connect(self._on_palette_changed)
         self._controls.optimization.reset_requested.connect(self._on_reset)
 
     # ------------------------------------------------------------------
@@ -183,9 +182,6 @@ class MainWindow(QMainWindow):
                 cameras=self._scene.cameras,
                 device=device,
             )
-            from core.optimizer import snap_patches_to_palette
-
-            snap_patches_to_palette(self._patches, self._controls.optimization.palette)
         except (ValueError, FileNotFoundError, ImportError) as exc:
             QMessageBox.warning(self, "Initialize patches", str(exc))
             return
@@ -216,13 +212,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Run optimization", "Enter an SDS prompt first.")
             return
 
-        try:
-            from core.optimizer import snap_patches_to_palette
-
-            snap_patches_to_palette(self._patches, opt.palette)
-        except ValueError as exc:
-            QMessageBox.warning(self, "Run optimization", str(exc))
-            return
         self._viewport.set_patches(self._patches)
         self._update_camera_previews_from_patches()
 
@@ -232,7 +221,6 @@ class MainWindow(QMainWindow):
             cameras=self._scene.cameras,
             target1=self._target1_img,
             target2=self._target2_img,
-            palette=opt.palette,
             lr=opt.learning_rate,
             n_steps=opt.n_steps,
             enable_srd=opt.enable_srd,
@@ -255,12 +243,12 @@ class MainWindow(QMainWindow):
         if opt.run_until_convergence:
             print(
                 f"[Optimization] started: until loss <= {opt.convergence_threshold:.3e}, "
-                f"lr={opt.learning_rate:.3e}, srd={opt.enable_srd}, palette={opt.palette!r}"
+                f"lr={opt.learning_rate:.3e}, srd={opt.enable_srd}"
             )
         else:
             print(
                 f"[Optimization] started: steps={opt.n_steps}, lr={opt.learning_rate:.3e}, "
-                f"srd={opt.enable_srd}, palette={opt.palette!r}"
+                f"srd={opt.enable_srd}"
             )
 
     def _on_optimization_step(self, step_idx: int, metrics: object, meshes: object) -> None:
@@ -283,10 +271,13 @@ class MainWindow(QMainWindow):
                     f"view2={metrics.get('view2_loss', 0.0):.6f}, "
                     f"view1_sil={metrics.get('view1_silhouette', 0.0):.6f}, "
                     f"view2_sil={metrics.get('view2_silhouette', 0.0):.6f}, "
+                    f"view1_neg={metrics.get('view1_negative_space', 0.0):.6f}, "
+                    f"view2_neg={metrics.get('view2_negative_space', 0.0):.6f}, "
                     f"overlap={metrics.get('overlap', 0.0):.6f}, "
                     f"visibility={metrics.get('visibility', 0.0):.6f}, "
                     f"camera_bounds={metrics.get('camera_bounds', 0.0):.6f}; "
-                    f"weighted: overlap={metrics.get('overlap_weighted', 0.0):.6f}, "
+                    f"weighted: negative_space={metrics.get('negative_space_weighted', 0.0):.6f}, "
+                    f"overlap={metrics.get('overlap_weighted', 0.0):.6f}, "
                     f"visibility={metrics.get('visibility_weighted', 0.0):.6f}, "
                     f"camera_bounds={metrics.get('camera_bounds_weighted', 0.0):.6f}"
                 )
@@ -298,19 +289,6 @@ class MainWindow(QMainWindow):
             return
         self._worker.set_paused(paused)
         print("[Optimization] paused" if paused else "[Optimization] resumed")
-
-    def _on_palette_changed(self) -> None:
-        if not self._patches:
-            return
-        try:
-            from core.optimizer import snap_patches_to_palette
-
-            snap_patches_to_palette(self._patches, self._controls.optimization.palette)
-        except ValueError as exc:
-            QMessageBox.warning(self, "Palette", str(exc))
-            return
-        self._viewport.set_patches(self._patches)
-        self._update_camera_previews_from_patches()
 
     def _on_reset(self) -> None:
         if self._worker is not None and self._worker.isRunning():

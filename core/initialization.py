@@ -5,10 +5,9 @@ Each function returns a list of Patch objects positioned in the XZ plane
 
 Strategies
 ----------
-init_grid   : Patches on a regular grid — fast, deterministic.
-init_random : Patches at random positions — good for breaking symmetry.
-init_sam    : Use Meta's Segment Anything Model to seed patch positions from
-              a reference image (requires the ``segment-anything`` package).
+init_experimental : Randomize patch centers in a 5×5×5 box with camera-aware theta.
+init_sam          : Use Meta's Segment Anything Model to seed patch positions from
+                    a reference image (requires the ``segment-anything`` package).
 """
 
 from __future__ import annotations
@@ -64,7 +63,7 @@ def _make_patch(
         label:  Human-readable name for the patch.
     """
     if albedo is None:
-        albedo = [0.5, 0.5, 0.5]
+        albedo = [1.0, 1.0, 1.0]
 
     n = Patch.N_CONTROL_POINTS
     handle_scale = radius * (4.0 / 3.0) * math.tan(math.pi / n)
@@ -135,98 +134,6 @@ def _sample_allowed_theta(
         if _theta_allowed(theta, camera_angles, margin):
             return theta
     return math.radians(45.0)
-
-
-# ---------------------------------------------------------------------------
-# Grid initialization
-# ---------------------------------------------------------------------------
-
-
-def init_grid(
-    n_patches: int,
-    bounds: tuple[float, float, float, float] = _DEFAULT_BOUNDS,
-    radius: float = _DEFAULT_RADIUS,
-    y: float = _DEFAULT_Y,
-    device: str = "cpu",
-) -> list[Patch]:
-    """Place patches on a uniform grid in the XZ plane.
-
-    All patches start with theta = 0 (facing +Z) and a neutral grey spline
-    approximating a circle of the given radius.
-
-    Args:
-        n_patches: Total number of patches to create.
-        bounds:    (x_min, x_max, z_min, z_max) world-space extent.
-        radius:    Initial spline radius in local units.
-        y:         Y position of all patch centres.
-        device:    PyTorch device string.
-    """
-    x_min, x_max, z_min, z_max = bounds
-    cols = math.ceil(math.sqrt(n_patches))
-    rows = math.ceil(n_patches / cols)
-
-    xs = np.linspace(x_min, x_max, cols, dtype=np.float32)
-    zs = np.linspace(z_min, z_max, rows, dtype=np.float32)
-
-    patches: list[Patch] = []
-    for row in range(rows):
-        for col in range(cols):
-            if len(patches) >= n_patches:
-                break
-            patches.append(_make_patch(
-                center=[float(xs[col]), y, float(zs[row])],
-                theta=0.0,
-                radius=radius,
-                device=device,
-                label=f"patch_{len(patches):04d}",
-            ))
-
-    return patches
-
-
-# ---------------------------------------------------------------------------
-# Random initialization
-# ---------------------------------------------------------------------------
-
-
-def init_random(
-    n_patches: int,
-    bounds: tuple[float, float, float, float] = _DEFAULT_BOUNDS,
-    radius: float = _DEFAULT_RADIUS,
-    y: float = _DEFAULT_Y,
-    theta_range: tuple[float, float] = (-math.pi / 4, math.pi / 4),
-    seed: int | None = None,
-    device: str = "cpu",
-) -> list[Patch]:
-    """Place patches at uniformly random positions within bounds.
-
-    Args:
-        n_patches:   Total number of patches to create.
-        bounds:      (x_min, x_max, z_min, z_max) world-space extent.
-        radius:      Initial spline radius in local units.
-        y:           Y height of all patches.
-        theta_range: (min, max) range for random Y-axis rotation in radians.
-        seed:        Optional RNG seed for reproducibility.
-        device:      PyTorch device string.
-    """
-    rng = np.random.default_rng(seed)
-    x_min, x_max, z_min, z_max = bounds
-    t_min, t_max = theta_range
-
-    patches: list[Patch] = []
-    for i in range(n_patches):
-        x     = float(rng.uniform(x_min, x_max))
-        z     = float(rng.uniform(z_min, z_max))
-        theta = float(rng.uniform(t_min, t_max))
-        patches.append(_make_patch(
-            center=[x, y, z],
-            theta=theta,
-            radius=radius,
-            device=device,
-            label=f"patch_{i:04d}",
-        ))
-
-    return patches
 
 
 # ---------------------------------------------------------------------------
@@ -366,7 +273,7 @@ def init_sam(
         patch_radius = float(np.clip(radius * footprint * 6.0, radius * 0.4, radius * 3.0))
 
         seg: np.ndarray = mask_data["segmentation"]
-        mean_rgb = (image[seg].mean(axis=0) / 255.0).tolist() if seg.any() else [0.5, 0.5, 0.5]
+        mean_rgb = [1.0, 1.0, 1.0]
 
         patches.append(_make_patch(
             center=[wx, y, wz],
@@ -377,13 +284,11 @@ def init_sam(
             label=f"patch_{i:04d}",
         ))
 
-    # Pad with random patches if SAM found fewer than requested
+    # Pad with experimental patches if SAM found fewer than requested
     if len(patches) < n_patches:
-        extra = init_random(
+        extra = init_experimental(
             n_patches - len(patches),
-            bounds=bounds,
             radius=radius,
-            y=y,
             device=device,
             seed=42,
         )
@@ -415,7 +320,7 @@ def initialize_patches(
     """Single entry-point called by the UI.
 
     Args:
-        mode:            "Grid", "Random", or "SAM segmentation".
+        mode:            "Experimental" or "SAM segmentation".
         n_patches:       Number of patches to create.
         bounds:          World-space XZ extent.
         radius:          Initial spline radius per patch.
@@ -423,15 +328,9 @@ def initialize_patches(
         device:          PyTorch device string.
         reference_image: Required for SAM mode.
         sam_variant:     SAM model label.
-        cameras:         Scene cameras, accepted for compatibility.
-        seed:            RNG seed for Random mode.
+        cameras:         Scene cameras used for theta sampling in Experimental mode.
+        seed:            RNG seed.
     """
-    if mode == "Grid":
-        return init_grid(n_patches, bounds, radius, y, device)
-
-    if mode == "Random":
-        return init_random(n_patches, bounds, radius, y, seed=seed, device=device)
-
     if mode == "Experimental":
         return init_experimental(n_patches, cameras, radius, device, seed=seed)
 

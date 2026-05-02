@@ -140,6 +140,7 @@ Stochastic rewrite descent for adaptive patch counts.
 - Samples structural rewrites such as add, delete, restore, and split.
 - Scores candidate rewrites with local optimization lookahead.
 - Applies compatible rewrites that improve the loss.
+- Prints a rewrite log whenever it actually adds, restores, splits, or deletes a patch.
 - Tracks active, added, and deleted patch counts for the UI.
 
 ### `ui/worker.py`
@@ -370,6 +371,7 @@ How it works:
 - Updates camera previews.
 - Updates the fixed-step progress bar.
 - Logs periodic total loss, raw per-term averages, and weighted geometric penalty contributions.
+- Includes separate view 1 and view 2 negative-space losses in the debug output.
 
 ### `_on_pause_optimization(paused)`
 
@@ -1614,6 +1616,7 @@ How it works:
 - Clears gradients.
 - Renders view 1 and view 2.
 - Computes RGB and silhouette losses.
+- Computes negative-space losses for both target-image views.
 - Computes optional view 2 SDS loss or image loss.
 - Computes overlap, visibility, and camera-bounds penalties.
 - Computes `lambda_count * num_active_patches`; this is constant for Adam but matters when SRD compares structural rewrites.
@@ -1642,7 +1645,9 @@ Why it matters:
 How it works:
 
 - Computes view 1 masked RGB and silhouette losses.
+- Computes view 1 negative-space loss from rendered alpha in target background pixels.
 - Computes view 2 image or SDS loss.
+- Computes view 2 negative-space loss when a second target image is available.
 - Computes overlap, visibility, and camera-bounds penalties for the supplied patch sequence.
 - Combines the weighted terms into the same total loss used for optimization.
 
@@ -1901,6 +1906,19 @@ Significance:
 
 - Focuses color matching on target foreground instead of wasting loss on padded or background pixels.
 
+### Negative-space loss
+
+```text
+negative_space_loss = sum((rendered_alpha^2) * (1 - target_foreground_mask))
+                    / sum(1 - target_foreground_mask)
+```
+
+Significance:
+
+- Penalizes patches that appear in the target image's background region.
+- This is computed separately for view 1 and view 2.
+- The default `negative_space_weight` is `3.0`, so false positives outside the silhouette are weighted more strongly than the foreground RGB matching term.
+
 ### Patch count penalty
 
 ```text
@@ -1957,6 +1975,7 @@ The main optimizer step combines terms as:
 total_loss =
     view1_loss
   + view2_loss
+  + negative_space_weight * (view1_negative_space + view2_negative_space)
   + overlap_weight * overlap_loss
   + visibility_weight * visibility_loss
   + camera_bounds_weight * camera_bounds_loss
@@ -1966,6 +1985,7 @@ total_loss =
 Current important weights are set in `SceneOptimizer.__init__()`:
 
 - `silhouette_weight`
+- `negative_space_weight`
 - `overlap_weight`
 - `visibility_weight`
 - `camera_bounds_weight`
