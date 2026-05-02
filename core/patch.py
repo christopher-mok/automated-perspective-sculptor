@@ -146,6 +146,8 @@ class Patch(nn.Module):
         self.theta  = nn.Parameter(torch.tensor(theta,  dtype=torch.float32, device=device))
         self.albedo = nn.Parameter(torch.tensor(albedo, dtype=torch.float32, device=device))
         self.label  = label
+        self.creation_step = 0
+        self.self_intersect_counter = 0
 
     def _link_control_points(self) -> None:
         """Attach next/previous links for the closed control-point chain."""
@@ -215,6 +217,39 @@ class Patch(nn.Module):
         nxt = torch.roll(xy, shifts=-1, dims=0)
         cross = xy[:, 0] * nxt[:, 1] - xy[:, 1] * nxt[:, 0]
         return 0.5 * cross.sum().abs()
+
+    def is_self_intersecting(
+        self,
+        n_per_segment: int = 20,
+        threshold: float = 0.01,
+        neighbor_skip: int = 3,
+    ) -> bool:
+        """Detect likely self-intersection from sampled non-neighbor segments."""
+        with torch.no_grad():
+            pts = self.sample_spline_local(n_per_segment).detach()
+            n = len(pts)
+            if n < 8:
+                return False
+
+            def _segment_distance(a0: torch.Tensor, a1: torch.Tensor,
+                                  b0: torch.Tensor, b1: torch.Tensor) -> torch.Tensor:
+                samples = torch.linspace(0.0, 1.0, 5, device=pts.device, dtype=pts.dtype)
+                a = a0.unsqueeze(0) + samples[:, None] * (a1 - a0).unsqueeze(0)
+                b = b0.unsqueeze(0) + samples[:, None] * (b1 - b0).unsqueeze(0)
+                return torch.cdist(a[:, :2], b[:, :2]).min()
+
+            for i in range(n):
+                a0 = pts[i]
+                a1 = pts[(i + 1) % n]
+                for j in range(i + 1, n):
+                    wrapped_dist = min((j - i) % n, (i - j) % n)
+                    if wrapped_dist <= neighbor_skip:
+                        continue
+                    b0 = pts[j]
+                    b1 = pts[(j + 1) % n]
+                    if _segment_distance(a0, a1, b0, b1) < threshold:
+                        return True
+        return False
 
     def split_down_middle(self, creation_step: int = 0) -> tuple["Patch", "Patch"]:
         """Split a five-point patch into two smaller five-point child patches.
@@ -390,6 +425,7 @@ class Patch(nn.Module):
             "theta":  _f(self.theta),
             "albedo": _l(self.albedo),
             "creation_step": int(getattr(self, "creation_step", 0)),
+            "self_intersect_counter": int(getattr(self, "self_intersect_counter", 0)),
             "control_points": [
                 {
                     "x":               _f(cast(ControlPoint, cp).x),
@@ -422,6 +458,7 @@ class Patch(nn.Module):
             label=d.get("label", ""),
         )
         patch.creation_step = int(d.get("creation_step", 0))
+        patch.self_intersect_counter = int(d.get("self_intersect_counter", 0))
         return patch
 
     def __repr__(self) -> str:

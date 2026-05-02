@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import math
+import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
@@ -14,47 +15,76 @@ import torch
 from core.patch import ControlPoint, Patch
 
 if TYPE_CHECKING:
-    from scene.camera import Camera
+    from core.optimizer import SceneOptimizer
 
 
-RewriteKind = Literal["add", "restore", "delete", "split"]
+RewriteType = Literal["add", "delete", "restore"]
+
+
+@dataclass
+class SRDConfig:
+    enabled: bool = True
+    lr: float = 1e-3
+    propose_every: int = 50
+    proposal_trigger: Literal["step", "stagnation"] = "step"
+    proposal_patience: int = 10
+    proposal_rel_loss: float = 1e-4
+    proposal_steps: int = 5
+    num_candidates: int = 64
+    better_abs_eps: float = 1e-5
+    better_rel_eps: float = 1e-3
+    parallel_accept: bool = True
+    w_simplicity: float = 0.1
+    cleanup_interval: int = 25
+    max_patches: int = 200
+    min_patches: int = 4
+    max_handle_scale: float = 2.0
+    scene_min_x: float = -2.5
+    scene_max_x: float = 2.5
+    scene_min_y: float = -2.5
+    scene_max_y: float = 2.5
+    scene_min_z: float = -2.5
+    scene_max_z: float = 2.5
 
 
 @dataclass
 class SRDStats:
+    active: int = 0
     added: int = 0
     deleted: int = 0
-    total_added: int = 0
-    total_deleted: int = 0
-    active: int = 0
+    mandatory_deleted: int = 0
+    total_adds: int = 0
+    total_deletes: int = 0
+    total_mandatory_deletes: int = 0
     evaluated: int = 0
     promising: int = 0
     accepted: int = 0
 
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "srd_active_patches": float(self.active),
+            "srd_added": float(self.added),
+            "srd_deleted": float(self.deleted),
+            "srd_mandatory_deleted": float(self.mandatory_deleted),
+            "srd_total_adds": float(self.total_adds),
+            "srd_total_deletes": float(self.total_deletes),
+            "srd_total_mandatory_deletes": float(self.total_mandatory_deletes),
+            "srd_evaluated": float(self.evaluated),
+            "srd_promising": float(self.promising),
+            "srd_accepted": float(self.accepted),
+        }
+
 
 @dataclass
-class RewriteCandidate:
-    kind: RewriteKind
-    position: np.ndarray | None = None
-    patch_index: int | None = None
-    history_index: int | None = None
+class RewriteSpec:
+    type: RewriteType
+    index: int | None = None
     patch_state: dict | None = None
-    improvement: float = 0.0
-    applied_index: int | None = None
+    history_index: int | None = None
     reason: str = ""
 
-    @property
-    def label(self) -> str:
-        if self.kind == "delete":
-            return f"DeletePatch({self.patch_index})"
-        if self.kind == "split":
-            return f"SplitPatch({self.patch_index})"
-        if self.kind == "restore":
-            return f"RestorePatch({self.history_index})"
-        return "AddPatch"
 
-
-def _patch_parameters(patches: Sequence[Patch]) -> list[torch.nn.Parameter]:
+def patch_parameters(patches: Sequence[Patch]) -> list[torch.nn.Parameter]:
     params: list[torch.nn.Parameter] = []
     for patch in patches:
         params.extend([patch.center, patch.theta])
@@ -65,17 +95,34 @@ def _patch_parameters(patches: Sequence[Patch]) -> list[torch.nn.Parameter]:
     return params
 
 
-def _near_zero_patch(
-    position: np.ndarray,
+def deep_copy_patches(patches: Sequence[Patch], device: str) -> list[Patch]:
+    copied = [Patch.from_dict(copy.deepcopy(patch.to_dict()), device=device) for patch in patches]
+    for patch in copied:
+        for param in patch.parameters():
+            param.requires_grad_(True)
+    return copied
+
+
+def save_patch_state(patch: Patch) -> dict:
+    return copy.deepcopy(patch.to_dict())
+
+
+def create_patch_from_saved(state: dict, device: str) -> Patch:
+    return Patch.from_dict(copy.deepcopy(state), device=device)
+
+
+def create_near_zero_patch(
+    *,
+    position: Sequence[float],
     device: str,
     albedo: Sequence[float],
     creation_step: int,
     label: str,
 ) -> Patch:
-    control_points: list[ControlPoint] = []
     radius = 0.001
-    for idx in range(Patch.N_CONTROL_POINTS):
-        angle = 2.0 * math.pi * idx / Patch.N_CONTROL_POINTS - math.pi / 2.0
+    control_points: list[ControlPoint] = []
+    for i in range(Patch.N_CONTROL_POINTS):
+        angle = 2.0 * math.pi * i / Patch.N_CONTROL_POINTS - math.pi / 2.0
         control_points.append(ControlPoint(
             x=radius * math.cos(angle),
             y=radius * math.sin(angle),
@@ -86,496 +133,396 @@ def _near_zero_patch(
         ))
     patch = Patch(
         control_points=control_points,
-        center=position.tolist(),
+        center=list(position),
         theta=0.0,
         albedo=list(albedo),
         device=device,
         label=label,
     )
     patch.creation_step = creation_step
+    patch.self_intersect_counter = 0
     return patch
 
 
-class StochasticRewriteDescent:
-    """Sample candidate add/delete rewrites and accept useful compatible ones."""
+class SRDOptimizer:
+    """Hybrid optimizer that proposes add/delete rewrites around gradient descent."""
 
-    def __init__(
-        self,
-        *,
-        enabled: bool = True,
-        interval: int = 50,
-        lambda_count: float = 0.05,
-        lambda_area: float = 0.05,
-        min_patch_area: float = 0.001,
-        max_patches: int = 200,
-        min_patches: int = 4,
-        max_additions: int = 3,
-        max_deletions: int = 3,
-        cooldown_steps: int = 30,
-        candidate_count: int = 64,
-        scene_box_size: float = 5.0,
-        rewrite_eval_steps: int = 4,
-        no_contribution_alpha: float = 1e-5,
-        no_effect_image_delta: float = 1e-6,
-        rule_violation_tol: float = 1e-4,
-    ) -> None:
-        self.enabled = enabled
-        self.interval = interval
-        self.lambda_count = lambda_count
-        self.lambda_area = lambda_area
-        self.min_patch_area = min_patch_area
-        self.max_patches = max_patches
-        self.min_patches = min_patches
-        self.max_additions = max_additions
-        self.max_deletions = max_deletions
-        self.cooldown_steps = cooldown_steps
-        self.candidate_count = candidate_count
-        self.scene_box_size = scene_box_size
-        self.rewrite_eval_steps = rewrite_eval_steps
-        self.no_contribution_alpha = no_contribution_alpha
-        self.no_effect_image_delta = no_effect_image_delta
-        self.rule_violation_tol = rule_violation_tol
-        self.deleted_history: list[dict] = []
-        self.stats = SRDStats()
+    def __init__(self, model: "SceneOptimizer", cameras, targets, config: SRDConfig) -> None:
+        self.model = model
+        self.cameras = cameras
+        self.targets = targets
+        self.config = config
 
-    def step(
-        self,
-        model,
-        optimizer: torch.optim.Optimizer,
-        current_loss: float,
-        cameras: Sequence["Camera"],
-        targets: tuple[torch.Tensor, torch.Tensor | None],
-        current_step: int,
-    ) -> SRDStats:
-        """Run one SRD rewrite pass when the interval says it is time."""
+        self.optimizer = torch.optim.Adam(patch_parameters(model.patches), lr=config.lr)
+
+        self.propose_every = config.propose_every
+        self.proposal_trigger = config.proposal_trigger
+        self.proposal_patience = config.proposal_patience
+        self.proposal_rel_loss = config.proposal_rel_loss
+        self.proposal_steps = config.proposal_steps
+        self.num_candidates = config.num_candidates
+        self.better_abs_eps = config.better_abs_eps
+        self.better_rel_eps = config.better_rel_eps
+        self.parallel_accept = config.parallel_accept
+        self.w_simplicity = config.w_simplicity
+        self.cleanup_interval = config.cleanup_interval
+
+        self.loss_ema: float | None = None
+        self.patience_counter = 0
+        self.loss_history: list[float] = []
+        self.deleted_patches: list[dict] = []
+
+        self.total_adds = 0
+        self.total_deletes = 0
+        self.total_mandatory_deletes = 0
+        self.stats = SRDStats(active=len(model.patches))
+
+    def sync_optimizer(self) -> None:
+        self.optimizer = torch.optim.Adam(patch_parameters(self.model.patches), lr=self.config.lr)
+        self.model.optim = self.optimizer
+
+    def step(self, current_step: int) -> dict[str, float]:
         self.stats.added = 0
         self.stats.deleted = 0
+        self.stats.mandatory_deleted = 0
         self.stats.evaluated = 0
         self.stats.promising = 0
         self.stats.accepted = 0
-        self.stats.active = len(model.patches)
 
-        if not self.enabled or self.interval <= 0 or current_step % self.interval != 0:
-            return self.stats
+        if self.cleanup_interval > 0 and current_step % self.cleanup_interval == 0:
+            self._mandatory_cleanup(current_step)
 
-        mandatory_deletes = self._mandatory_delete_rewrites(model, current_step)
-        if mandatory_deletes:
-            self._apply_rewrites(model, optimizer, mandatory_deletes, current_step)
-            self.stats.accepted += len(mandatory_deletes)
-            self.stats.active = len(model.patches)
-            with torch.no_grad():
-                render1, render2 = model.renderer.render_both(
-                    model.patches,
-                    model.camera1,
-                    model.camera2,
-                    model.render_resolutions,
-                )
-                current_loss_tensor, _ = model._loss_from_renders(render1, render2, model.patches)
-                current_loss = float(current_loss_tensor.detach().cpu())
+        if self._should_propose(current_step):
+            self._rewrite_step(current_step)
 
-        candidates = self._sample_rewrites(model, current_step)
-        scored: list[RewriteCandidate] = []
-        for candidate in candidates:
-            improvement = self.evaluate_rewrite(model, optimizer, candidate, current_loss)
+        metrics = self._continuous_step()
+        self._project_to_valid(self.model.patches)
+        self._update_self_intersect_counters()
+        self._update_loss_history(metrics["loss"])
+
+        self.stats.active = len(self.model.patches)
+        metrics.update(self.stats.as_dict())
+        return metrics
+
+    def _continuous_step(self) -> dict[str, float]:
+        self.optimizer.zero_grad(set_to_none=True)
+        render1, render2 = self.model.renderer.render_both(
+            self.model.patches,
+            self.model.camera1,
+            self.model.camera2,
+            self.model.resolution,
+        )
+        loss, components = self.model._loss_from_renders(render1, render2, self.model.patches)
+        loss.backward()
+        self.optimizer.step()
+        self.optimizer.zero_grad(set_to_none=True)
+        self.model._post_step_constraints()
+        metrics = self.model._metrics_from_components(loss, components)
+        return metrics
+
+    def _compute_task_loss_for_patches(self, patches: Sequence[Patch]) -> torch.Tensor:
+        render1, render2 = self.model.renderer.render_both(
+            list(patches),
+            self.model.camera1,
+            self.model.camera2,
+            self.model.resolution,
+        )
+        loss, _ = self.model._loss_from_renders(render1, render2, patches)
+        return loss
+
+    def _compute_score_for_patches(self, patches: Sequence[Patch]) -> float:
+        with torch.no_grad():
+            task_loss = self._compute_task_loss_for_patches(patches)
+        return float(task_loss.detach().cpu()) + self.w_simplicity * len(patches)
+
+    def _should_propose(self, current_step: int) -> bool:
+        if not self.config.enabled:
+            return False
+        if self.proposal_trigger == "step":
+            return self.propose_every > 0 and current_step % self.propose_every == 0
+        if self.loss_ema is None:
+            return False
+        current = self.loss_history[-1] if self.loss_history else float("inf")
+        if self.loss_ema - current < self.proposal_rel_loss * self.loss_ema:
+            self.patience_counter += 1
+        else:
+            self.patience_counter = 0
+        if self.patience_counter >= self.proposal_patience:
+            self.patience_counter = 0
+            return True
+        return False
+
+    def _rewrite_step(self, current_step: int) -> None:
+        base_score = self._compute_score_for_patches(self.model.patches)
+        proposals = self._generate_proposals(current_step)
+        scored: list[tuple[list[Patch], RewriteSpec, float, float]] = []
+
+        for proposal_patches, spec in proposals:
+            self._briefly_optimize(proposal_patches)
+            proposal_score = self._compute_score_for_patches(proposal_patches)
+            improvement = base_score - proposal_score
+            scored.append((proposal_patches, spec, improvement, proposal_score))
             self.stats.evaluated += 1
-            if improvement > 0.0:
-                candidate.improvement = improvement
-                scored.append(candidate)
 
-        self.stats.promising = len(scored)
-        accepted = self._select_compatible(scored)
-        self._apply_rewrites(model, optimizer, accepted, current_step)
-        self.stats.accepted += len(accepted)
-        self.stats.active = len(model.patches)
+        accepted = [
+            (patches, spec, improvement)
+            for patches, spec, improvement, _score in scored
+            if improvement > self.better_abs_eps or improvement > self.better_rel_eps * abs(base_score)
+        ]
+        self.stats.promising = len(accepted)
+
+        if not accepted:
+            print(f"SRD step {current_step}: {len(proposals)} candidates, none accepted")
+            return
+
+        selected = self._greedy_select_compatible(accepted) if self.parallel_accept else [
+            max(accepted, key=lambda item: item[2])
+        ]
+        changed = self._apply_rewrites(selected, current_step)
+        self.stats.accepted = len(selected) if changed else 0
+        if changed:
+            self.sync_optimizer()
 
         print(
-            f"SRD step {current_step}: evaluated {self.stats.evaluated} candidates, "
-            f"{self.stats.promising} promising, accepted {self.stats.accepted}"
+            f"SRD step {current_step}: {len(proposals)} candidates, "
+            f"{len(accepted)} promising, {self.stats.accepted} accepted"
         )
-        for candidate in accepted:
-            patch_ref = candidate.applied_index if candidate.applied_index is not None else candidate.patch_index
-            print(f"  Accepted {candidate.label} at patch {patch_ref}, improvement={candidate.improvement:.6f}")
-        for candidate in mandatory_deletes:
-            patch_ref = candidate.applied_index if candidate.applied_index is not None else candidate.patch_index
-            print(f"  Mandatory {candidate.label} at patch {patch_ref}, reason={candidate.reason}")
+        for _patches, spec, improvement in selected:
+            print(f"  Accepted {spec.type} patch {spec.index if spec.index is not None else 'new'}, improvement={improvement:.6f}")
         print(
-            f"  Total patches: {len(model.patches)}, total adds: {self.stats.total_added}, "
-            f"total deletes: {self.stats.total_deleted}"
+            f"  Total patches: {len(self.model.patches)}, adds: {self.total_adds}, deletes: {self.total_deletes}"
         )
-        return self.stats
 
-    def _mandatory_delete_rewrites(self, model, current_step: int) -> list[RewriteCandidate]:
-        """Find patches that must be deleted before stochastic SRD scoring."""
-        if len(model.patches) <= self.min_patches:
-            return []
+    def _briefly_optimize(self, patches: Sequence[Patch]) -> None:
+        params = patch_parameters(patches)
+        if not params:
+            return
+        temp_optimizer = torch.optim.Adam(params, lr=self.config.lr)
+        for _ in range(max(0, self.proposal_steps)):
+            temp_optimizer.zero_grad(set_to_none=True)
+            loss = self._compute_task_loss_for_patches(patches)
+            loss.backward()
+            temp_optimizer.step()
+            temp_optimizer.zero_grad(set_to_none=True)
+            self._project_to_valid(patches)
 
-        deletes: list[RewriteCandidate] = []
-        available_deletions = max(0, len(model.patches) - self.min_patches)
-        for idx, patch in enumerate(model.patches):
-            if len(deletes) >= min(self.max_deletions, available_deletions):
-                break
-            if current_step - int(getattr(patch, "creation_step", 0)) < self.cooldown_steps:
+    def _generate_proposals(self, current_step: int) -> list[tuple[list[Patch], RewriteSpec]]:
+        proposals: list[tuple[list[Patch], RewriteSpec]] = []
+        num_patches = len(self.model.patches)
+
+        for _ in range(self.num_candidates):
+            roll = random.random()
+
+            if roll < 0.4 and num_patches > self.config.min_patches:
+                idx = random.randint(0, num_patches - 1)
+                patch = self.model.patches[idx]
+                if current_step - int(getattr(patch, "creation_step", 0)) < 30:
+                    continue
+                proposal = deep_copy_patches(self.model.patches, self.model.device)
+                del proposal[idx]
+                proposals.append((proposal, RewriteSpec(type="delete", index=idx)))
                 continue
 
-            reason = self._mandatory_delete_reason(model, idx)
-            if reason:
-                deletes.append(RewriteCandidate(
-                    kind="delete",
-                    patch_index=idx,
-                    improvement=0.0,
-                    reason=reason,
+            if roll < 0.8 and num_patches < self.config.max_patches:
+                proposal = deep_copy_patches(self.model.patches, self.model.device)
+                position = [
+                    random.uniform(self.config.scene_min_x, self.config.scene_max_x),
+                    random.uniform(self.config.scene_min_y, self.config.scene_max_y),
+                    random.uniform(self.config.scene_min_z, self.config.scene_max_z),
+                ]
+                proposal.append(create_near_zero_patch(
+                    position=position,
+                    device=self.model.device,
+                    albedo=self._default_albedo(),
+                    creation_step=current_step,
+                    label=f"patch_{len(proposal):04d}",
                 ))
-        return deletes
+                proposals.append((proposal, RewriteSpec(
+                    type="add",
+                    index=len(proposal) - 1,
+                    patch_state=save_patch_state(proposal[-1]),
+                )))
+                continue
 
-    def _mandatory_delete_reason(self, model, patch_index: int) -> str:
-        reasons: list[str] = []
-        if self._patch_violates_rules(model, patch_index):
-            reasons.append("rule violation")
-        if not self._patch_contributes_to_either_image(model, patch_index):
-            reasons.append("no image contribution")
-        if not self._deleting_patch_changes_image(model, patch_index):
-            reasons.append("delete has no image effect")
-        return ", ".join(reasons)
-
-    def _patch_violates_rules(self, model, patch_index: int) -> bool:
-        patch = model.patches[patch_index]
-        params = [patch.center, patch.theta]
-        for cp in patch.control_points:
-            params.extend([cp.x, cp.y, cp.z, cp.handle_scale, cp.handle_rotation])
-        if any(not torch.isfinite(param.detach()).all().item() for param in params):
-            return True
-        if any(abs(float(cp.z.detach().cpu())) > self.rule_violation_tol for cp in patch.control_points):
-            return True
-        if any(float(cp.handle_scale.detach().cpu()) <= 0.0 for cp in patch.control_points):
-            return True
-        with torch.no_grad():
-            _, components = model._loss_from_renders(
-                *model.renderer.render_both(
-                    [patch],
-                    model.camera1,
-                    model.camera2,
-                    model.render_resolutions,
-                ),
-                [patch],
-            )
-        return (
-            float(components["camera_bounds"].detach().cpu()) > self.rule_violation_tol
-            or float(components["visibility"].detach().cpu()) > self.rule_violation_tol
-        )
-
-    def _patch_contributes_to_either_image(self, model, patch_index: int) -> bool:
-        patch = model.patches[patch_index]
-        with torch.no_grad():
-            render1, render2 = model.renderer.render_both(
-                [patch],
-                model.camera1,
-                model.camera2,
-                model.render_resolutions,
-            )
-            alpha1 = render1[..., 3].amax() if render1.shape[-1] >= 4 else render1[..., :3].amax()
-            alpha2 = render2[..., 3].amax() if render2.shape[-1] >= 4 else render2[..., :3].amax()
-        return (
-            float(alpha1.detach().cpu()) > self.no_contribution_alpha
-            or float(alpha2.detach().cpu()) > self.no_contribution_alpha
-        )
-
-    def _deleting_patch_changes_image(self, model, patch_index: int) -> bool:
-        with torch.no_grad():
-            full1, full2 = model.renderer.render_both(
-                model.patches,
-                model.camera1,
-                model.camera2,
-                model.render_resolutions,
-            )
-            remaining = [patch for idx, patch in enumerate(model.patches) if idx != patch_index]
-            without1, without2 = model.renderer.render_both(
-                remaining,
-                model.camera1,
-                model.camera2,
-                model.render_resolutions,
-            )
-            delta = torch.maximum(
-                (full1 - without1).abs().amax(),
-                (full2 - without2).abs().amax(),
-            )
-        return float(delta.detach().cpu()) > self.no_effect_image_delta
-
-    def evaluate_rewrite(
-        self,
-        model,
-        optimizer: torch.optim.Optimizer,
-        rewrite: RewriteCandidate,
-        current_loss: float,
-    ) -> float:
-        """Tentatively apply a rewrite, run local lookahead steps, then score it."""
-        saved_patches, saved_optimizer_state = self._save_state(model, optimizer)
-        try:
-            self._apply_single(model, rewrite, current_step=0, tentative=True)
-            model.optim = self._rebuild_optimizer(model, optimizer)
-
-            n_steps = self._rewrite_eval_steps(rewrite)
-            for _ in range(n_steps):
-                model.optim.zero_grad(set_to_none=True)
-                render1, render2 = model.renderer.render_both(
-                    model.patches,
-                    model.camera1,
-                    model.camera2,
-                    model.render_resolutions,
-                )
-                loss, _ = model._loss_from_renders(render1, render2, model.patches)
-                loss.backward()
-                model.optim.step()
-                model.optim.zero_grad(set_to_none=True)
-                model._post_step_constraints()
-
-            with torch.no_grad():
-                render1_new, render2_new = model.renderer.render_both(
-                    model.patches,
-                    model.camera1,
-                    model.camera2,
-                    model.render_resolutions,
-                )
-                new_loss, _ = model._loss_from_renders(render1_new, render2_new, model.patches)
-            return current_loss - float(new_loss.detach().cpu())
-        finally:
-            self._restore_state(model, optimizer, saved_patches, saved_optimizer_state)
-
-    def _rewrite_eval_steps(self, rewrite: RewriteCandidate) -> int:
-        """Use a slightly longer local lookahead for growth rewrites."""
-        if rewrite.kind in ("add", "restore", "split"):
-            return max(1, self.rewrite_eval_steps)
-        return 1
-
-    def _sample_rewrites(self, model, current_step: int) -> list[RewriteCandidate]:
-        candidates: list[RewriteCandidate] = []
-        add_budget = int(round(self.candidate_count * 0.35))
-        delete_budget = int(round(self.candidate_count * 0.15))
-        split_budget = self.candidate_count - add_budget - delete_budget
-
-        if len(model.patches) >= self.max_patches:
-            add_budget = 0
-            split_budget = 0
-            delete_budget = self.candidate_count
-        if len(model.patches) <= self.min_patches:
-            delete_budget = 0
-            add_budget = self.candidate_count - split_budget
-
-        for _ in range(add_budget):
-            if np.random.random() < 0.35 and self.deleted_history:
-                hist_idx = int(np.random.randint(0, len(self.deleted_history)))
-                candidates.append(RewriteCandidate(
-                    kind="restore",
+            if self.deleted_patches and num_patches < self.config.max_patches:
+                hist_idx = random.randrange(len(self.deleted_patches))
+                proposal = deep_copy_patches(self.model.patches, self.model.device)
+                restored = create_patch_from_saved(self.deleted_patches[hist_idx], self.model.device)
+                restored.creation_step = current_step
+                proposal.append(restored)
+                proposals.append((proposal, RewriteSpec(
+                    type="restore",
+                    index=len(proposal) - 1,
                     history_index=hist_idx,
-                    patch_state=copy.deepcopy(self.deleted_history[hist_idx]),
-                ))
-            else:
-                position = np.random.uniform(
-                    -self.scene_box_size * 0.5,
-                    self.scene_box_size * 0.5,
-                    size=3,
-                ).astype(np.float32)
-                candidates.append(RewriteCandidate(kind="add", position=position))
+                    patch_state=save_patch_state(restored),
+                )))
 
-        eligible_delete_indices = [
-            idx for idx, patch in enumerate(model.patches)
-            if current_step - int(getattr(patch, "creation_step", 0)) >= self.cooldown_steps
-            and float(patch.compute_area().detach().cpu()) <= self.min_patch_area
-        ]
-        for _ in range(delete_budget):
-            if not eligible_delete_indices:
-                break
-            idx = int(np.random.choice(eligible_delete_indices))
-            candidates.append(RewriteCandidate(kind="delete", patch_index=idx))
+        return proposals
 
-        eligible_split_indices = [
-            idx for idx, patch in enumerate(model.patches)
-            if current_step - int(getattr(patch, "creation_step", 0)) >= self.cooldown_steps
-        ]
-        for _ in range(split_budget):
-            if not eligible_split_indices or len(model.patches) + 1 > self.max_patches:
-                break
-            idx = self._sample_split_index(model, eligible_split_indices)
-            candidates.append(RewriteCandidate(kind="split", patch_index=idx))
+    def _greedy_select_compatible(
+        self,
+        accepted: list[tuple[list[Patch], RewriteSpec, float]],
+    ) -> list[tuple[list[Patch], RewriteSpec, float]]:
+        accepted.sort(key=lambda x: x[2], reverse=True)
+        selected: list[tuple[list[Patch], RewriteSpec, float]] = []
+        used_indices: set[int] = set()
 
-        np.random.shuffle(candidates)
-        return candidates[:self.candidate_count]
-
-    def _sample_split_index(self, model, eligible_indices: Sequence[int]) -> int:
-        """Sample split candidates with larger patches more likely."""
-        areas = np.array([
-            max(1e-8, float(model.patches[idx].compute_area().detach().cpu()))
-            for idx in eligible_indices
-        ], dtype=np.float64)
-        weights = areas / areas.sum()
-        return int(np.random.choice(list(eligible_indices), p=weights))
-
-    def _select_compatible(self, candidates: Sequence[RewriteCandidate]) -> list[RewriteCandidate]:
-        accepted: list[RewriteCandidate] = []
-        touched_indices: set[int] = set()
-        restored_history: set[int] = set()
-        additions = 0
-        deletions = 0
-
-        for candidate in sorted(candidates, key=lambda c: c.improvement, reverse=True):
-            if candidate.kind == "delete":
-                if candidate.patch_index is None or candidate.patch_index in touched_indices:
-                    continue
-                if deletions >= self.max_deletions:
-                    continue
-                touched_indices.add(candidate.patch_index)
-                deletions += 1
-                accepted.append(candidate)
+        for patches, spec, improvement in accepted:
+            idx = spec.index
+            if spec.type == "delete" and idx is not None and idx in used_indices:
                 continue
-
-            if candidate.kind == "split":
-                if candidate.patch_index is None or candidate.patch_index in touched_indices:
-                    continue
-                if additions >= self.max_additions:
-                    continue
-                touched_indices.add(candidate.patch_index)
-                additions += 1
-                accepted.append(candidate)
-                continue
-
-            if additions >= self.max_additions:
-                continue
-            if candidate.kind == "restore":
-                if candidate.history_index is None or candidate.history_index in restored_history:
-                    continue
-                restored_history.add(candidate.history_index)
-            additions += 1
-            accepted.append(candidate)
-
-        return accepted
+            selected.append((patches, spec, improvement))
+            if idx is not None:
+                used_indices.add(idx)
+        return selected
 
     def _apply_rewrites(
         self,
-        model,
-        optimizer: torch.optim.Optimizer,
-        rewrites: Sequence[RewriteCandidate],
+        selected: Sequence[tuple[list[Patch], RewriteSpec, float]],
         current_step: int,
-    ) -> None:
-        if not rewrites:
-            return
-
-        indexed_rewrites = [r for r in rewrites if r.kind in ("delete", "split")]
-        for rewrite in sorted(indexed_rewrites, key=lambda r: r.patch_index or 0, reverse=True):
-            self._apply_single(model, rewrite, current_step=current_step, tentative=False)
-        restored_history_indices: list[int] = []
-        for rewrite in [r for r in rewrites if r.kind not in ("delete", "split")]:
-            self._apply_single(model, rewrite, current_step=current_step, tentative=False)
-            if rewrite.kind == "restore" and rewrite.history_index is not None:
-                restored_history_indices.append(rewrite.history_index)
-        for history_index in sorted(set(restored_history_indices), reverse=True):
-            if 0 <= history_index < len(self.deleted_history):
-                self.deleted_history.pop(history_index)
-
-        model.optim = self._rebuild_optimizer(model, optimizer)
-        model._post_step_constraints()
-
-    def _apply_single(
-        self,
-        model,
-        rewrite: RewriteCandidate,
-        *,
-        current_step: int,
-        tentative: bool,
-    ) -> None:
-        if rewrite.kind == "delete":
-            if rewrite.patch_index is None or rewrite.patch_index >= len(model.patches):
-                return
-            patch = model.patches.pop(rewrite.patch_index)
-            rewrite.applied_index = rewrite.patch_index
-            if not tentative:
-                self.deleted_history.append(patch.to_dict())
-                self.stats.deleted += 1
-                self.stats.total_deleted += 1
-                pos = patch.center.detach().cpu().numpy()
-                print(
-                    f"[SRD rewrite] deleted patch={rewrite.patch_index}, "
-                    f"position=({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}), "
-                    f"reason={rewrite.reason or 'accepted rewrite'}"
-                )
-            return
-
-        if rewrite.kind == "split":
-            if rewrite.patch_index is None or rewrite.patch_index >= len(model.patches):
-                return
-            if len(model.patches) + 1 > self.max_patches:
-                return
-            patch = model.patches.pop(rewrite.patch_index)
-            child_a, child_b = patch.split_down_middle(creation_step=current_step)
-            model.patches.extend([child_a, child_b])
-            rewrite.applied_index = rewrite.patch_index
-            if not tentative:
-                self.deleted_history.append(patch.to_dict())
-                self.stats.added += 1
-                self.stats.total_added += 1
-                print(
-                    f"[SRD rewrite] split patch={rewrite.patch_index}, "
-                    f"children={len(model.patches) - 2},{len(model.patches) - 1}, "
-                    f"improvement={rewrite.improvement:.6f}"
-                )
-            return
-
-        if rewrite.kind == "restore" and rewrite.patch_state is not None:
-            patch = Patch.from_dict(copy.deepcopy(rewrite.patch_state), device=model.device)
-            patch.creation_step = current_step
-            model.patches.append(patch)
-            rewrite.applied_index = len(model.patches) - 1
-            if not tentative:
-                self.stats.added += 1
-                self.stats.total_added += 1
-                pos = patch.center.detach().cpu().numpy()
-                print(
-                    f"[SRD rewrite] restored patch={rewrite.applied_index}, "
-                    f"position=({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}), "
-                    f"improvement={rewrite.improvement:.6f}"
-                )
-            return
-
-        if rewrite.position is None:
-            return
-        if len(model.patches) >= self.max_patches:
-            return
-        palette_color = [1.0, 1.0, 1.0]
-        patch = _near_zero_patch(
-            rewrite.position,
-            model.device,
-            palette_color,
-            current_step,
-            label=f"patch_{len(model.patches):04d}",
+    ) -> bool:
+        changed = False
+        deletes = sorted(
+            [(spec, improvement) for _patches, spec, improvement in selected if spec.type == "delete"],
+            key=lambda item: item[0].index if item[0].index is not None else -1,
+            reverse=True,
         )
-        model.patches.append(patch)
-        rewrite.applied_index = len(model.patches) - 1
-        if not tentative:
+        for spec, _improvement in deletes:
+            idx = spec.index
+            if idx is None or idx >= len(self.model.patches) or len(self.model.patches) <= self.config.min_patches:
+                continue
+            self.deleted_patches.append(save_patch_state(self.model.patches[idx]))
+            self.deleted_patches = self.deleted_patches[-100:]
+            del self.model.patches[idx]
+            self.total_deletes += 1
+            self.stats.deleted += 1
+            changed = True
+
+        for proposal_patches, spec, _improvement in selected:
+            if spec.type not in ("add", "restore") or len(self.model.patches) >= self.config.max_patches:
+                continue
+            source_idx = spec.index
+            if source_idx is not None and 0 <= source_idx < len(proposal_patches):
+                patch = Patch.from_dict(save_patch_state(proposal_patches[source_idx]), device=self.model.device)
+            elif spec.patch_state is not None:
+                patch = create_patch_from_saved(spec.patch_state, self.model.device)
+            else:
+                continue
+            patch.creation_step = current_step
+            patch.self_intersect_counter = 0
+            self.model.patches.append(patch)
+            self.total_adds += 1
             self.stats.added += 1
-            self.stats.total_added += 1
-            pos = patch.center.detach().cpu().numpy()
-            print(
-                f"[SRD rewrite] added patch={rewrite.applied_index}, "
-                f"position=({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}), "
-                f"improvement={rewrite.improvement:.6f}"
+            changed = True
+
+        if changed:
+            self.model._post_step_constraints()
+        return changed
+
+    def _mandatory_cleanup(self, current_step: int) -> None:
+        if len(self.model.patches) <= self.config.min_patches:
+            return
+
+        to_delete: list[tuple[int, str]] = []
+        for i, patch in enumerate(self.model.patches):
+            if len(self.model.patches) - len(to_delete) <= self.config.min_patches:
+                break
+            reason = self._mandatory_delete_reason(i, patch, current_step)
+            if reason is not None:
+                to_delete.append((i, reason))
+
+        for idx, reason in sorted(to_delete, key=lambda x: x[0], reverse=True):
+            print(f"MANDATORY DELETE patch {idx}: {reason}")
+            self.deleted_patches.append(save_patch_state(self.model.patches[idx]))
+            self.deleted_patches = self.deleted_patches[-100:]
+            del self.model.patches[idx]
+            self.total_mandatory_deletes += 1
+            self.stats.mandatory_deleted += 1
+
+        if to_delete:
+            self.sync_optimizer()
+
+    def _mandatory_delete_reason(self, index: int, patch: Patch, current_step: int) -> str | None:
+        for param in patch.parameters():
+            if torch.isnan(param).any() or torch.isinf(param).any():
+                return "NaN/Inf in parameters"
+
+        for cp in patch.control_points:
+            if float(cp.handle_scale.detach().cpu()) <= 0.0:
+                return "Non-positive handle scale"
+
+        if int(getattr(patch, "self_intersect_counter", 0)) > 30:
+            return "Persistent self-intersection (30+ steps)"
+
+        if current_step - int(getattr(patch, "creation_step", 0)) < 30:
+            return None
+
+        if self._is_cheap_candidate_for_removal(index):
+            if not self._deleting_patch_changes_image(index):
+                return "Redundant - removing changes nothing in either view"
+            if not self._patch_contributes_to_loss(index):
+                return "Zero contribution to loss"
+        return None
+
+    def _is_cheap_candidate_for_removal(self, index: int) -> bool:
+        areas = [float(p.compute_area().detach().cpu()) for p in self.model.patches]
+        if not areas:
+            return False
+        threshold = float(np.percentile(np.array(areas, dtype=np.float32), 25.0))
+        return areas[index] <= threshold
+
+    def _deleting_patch_changes_image(self, index: int) -> bool:
+        with torch.no_grad():
+            full1, full2 = self.model.renderer.render_both(
+                self.model.patches,
+                self.model.camera1,
+                self.model.camera2,
+                self.model.resolution,
             )
+            remaining = [patch for i, patch in enumerate(self.model.patches) if i != index]
+            without1, without2 = self.model.renderer.render_both(
+                remaining,
+                self.model.camera1,
+                self.model.camera2,
+                self.model.resolution,
+            )
+            diff = torch.maximum((full1 - without1).abs().max(), (full2 - without2).abs().max())
+        return float(diff.detach().cpu()) >= 1e-4
 
-    def _save_state(self, model, optimizer: torch.optim.Optimizer) -> tuple[list[dict], dict]:
-        return [patch.to_dict() for patch in model.patches], copy.deepcopy(optimizer.state_dict())
+    def _patch_contributes_to_loss(self, index: int) -> bool:
+        loss_with = self._compute_score_for_patches(self.model.patches)
+        remaining = [patch for i, patch in enumerate(self.model.patches) if i != index]
+        loss_without = self._compute_score_for_patches(remaining)
+        return abs(loss_with - loss_without) >= 1e-6
 
-    def _restore_state(
-        self,
-        model,
-        optimizer: torch.optim.Optimizer,
-        patch_states: Sequence[dict],
-        optimizer_state: dict,
-    ) -> None:
-        model.patches = [Patch.from_dict(copy.deepcopy(state), device=model.device) for state in patch_states]
-        model.optim = self._rebuild_optimizer(model, optimizer)
-        try:
-            model.optim.load_state_dict(optimizer_state)
-        except ValueError:
-            pass
-        model._post_step_constraints()
+    def _project_to_valid(self, patches: Sequence[Patch]) -> None:
+        with torch.no_grad():
+            for patch in patches:
+                patch.center.data[0].clamp_(self.config.scene_min_x, self.config.scene_max_x)
+                patch.center.data[1].clamp_(self.config.scene_min_y, self.config.scene_max_y)
+                patch.center.data[2].clamp_(self.config.scene_min_z, self.config.scene_max_z)
+                for cp in patch.control_points:
+                    cp.z.data.zero_()
+                    cp.handle_scale.data.clamp_(min=0.01, max=self.config.max_handle_scale)
+            if patches is self.model.patches:
+                self.model._post_step_constraints()
 
-    def _rebuild_optimizer(self, model, optimizer: torch.optim.Optimizer) -> torch.optim.Optimizer:
-        defaults = optimizer.defaults.copy()
-        return optimizer.__class__(_patch_parameters(model.patches), **defaults)
+    def _update_self_intersect_counters(self) -> None:
+        for patch in self.model.patches:
+            if patch.is_self_intersecting():
+                patch.self_intersect_counter += 1
+            else:
+                patch.self_intersect_counter = 0
+
+    def _update_loss_history(self, loss_val: float) -> None:
+        self.loss_history.append(loss_val)
+        alpha = 0.01
+        if self.loss_ema is None:
+            self.loss_ema = loss_val
+        else:
+            self.loss_ema = alpha * loss_val + (1 - alpha) * self.loss_ema
+
+    def _default_albedo(self) -> list[float]:
+        if not self.model.patches:
+            return [1.0, 1.0, 1.0]
+        return self.model.patches[0].albedo.detach().cpu().clamp(0.0, 1.0).numpy().tolist()

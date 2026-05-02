@@ -251,6 +251,7 @@ class MainWindow(QMainWindow):
 
         self._viewport.set_patches(self._patches)
         self._update_camera_previews_from_patches()
+        self._controls.srd.set_stats({"patches": len(self._patches)})
         self._sync_export_enabled()
         print(f"[Initialize patches] {len(self._patches)} patches ({mode}, {device})")
 
@@ -298,6 +299,7 @@ class MainWindow(QMainWindow):
             sds_prompt=opt.sds_prompt,
             device=self._controls.patches.device,
             hanging_plane_size=self._controls.patches.hanging_plane_size,
+            srd_config=self._controls.srd.config,
             parent=self,
         )
         self._worker.step_completed.connect(self._on_optimization_step)
@@ -306,6 +308,7 @@ class MainWindow(QMainWindow):
 
         self._controls.optimization.set_running(True)
         self._controls.patches.set_running(True)
+        self._controls.srd.set_running(True)
         self._controls.optimization.reset_progress()
         self._sync_export_enabled()
         self._worker.start()
@@ -323,6 +326,8 @@ class MainWindow(QMainWindow):
     def _on_optimization_step(self, step_idx: int, metrics: object, meshes: object) -> None:
         self._viewport.set_meshes(meshes)
         self._image_panel.set_camera_previews(meshes, self._scene.cameras)
+        if isinstance(metrics, dict):
+            self._controls.srd.set_stats(metrics)
         if not self._optimization_run_until_convergence:
             self._controls.optimization.set_progress(step_idx)
         if step_idx == 1 or step_idx % 10 == 0:
@@ -337,12 +342,12 @@ class MainWindow(QMainWindow):
                     f"view1_neg={metrics.get('view1_negative_space', 0.0):.6f}, "
                     f"view2_neg={metrics.get('view2_negative_space', 0.0):.6f}, "
                     f"overlap={metrics.get('overlap', 0.0):.6f}, "
-                    f"visibility={metrics.get('visibility', 0.0):.6f}, "
                     f"camera_bounds={metrics.get('camera_bounds', 0.0):.6f}; "
                     f"weighted: negative_space={metrics.get('negative_space_weighted', 0.0):.6f}, "
                     f"overlap={metrics.get('overlap_weighted', 0.0):.6f}, "
-                    f"visibility={metrics.get('visibility_weighted', 0.0):.6f}, "
-                    f"camera_bounds={metrics.get('camera_bounds_weighted', 0.0):.6f}"
+                    f"camera_bounds={metrics.get('camera_bounds_weighted', 0.0):.6f}; "
+                    f"srd: patches={metrics.get('srd_active_patches', metrics.get('patches', 0.0)):.0f}, "
+                    f"accepted={metrics.get('srd_accepted', 0.0):.0f}"
                 )
             else:
                 print(f"[Optimization] step={step_idx}, loss={loss:.6f}")
@@ -419,6 +424,8 @@ class MainWindow(QMainWindow):
         self._update_hanging_plane_mesh()
         self._controls.optimization.reset_controls()
         self._controls.patches.set_running(False)
+        self._controls.srd.set_running(False)
+        self._controls.srd.set_stats({})
         self._sync_export_enabled()
         print("[Reset] cleared targets, patches, optimization state, and viewport")
 
@@ -448,6 +455,7 @@ class MainWindow(QMainWindow):
             return
         self._controls.optimization.set_running(False)
         self._controls.patches.set_running(False)
+        self._controls.srd.set_running(False)
         self._sync_export_enabled()
         QMessageBox.warning(self, "Optimization failed", message)
         print(f"[Optimization] failed: {message}")
@@ -458,6 +466,7 @@ class MainWindow(QMainWindow):
             return
         self._controls.optimization.set_running(False)
         self._controls.patches.set_running(False)
+        self._controls.srd.set_running(False)
         self._sync_export_enabled()
         loss = metrics.get("loss", None) if isinstance(metrics, dict) else None
         if loss is None:
