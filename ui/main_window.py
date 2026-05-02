@@ -16,6 +16,7 @@ _TARGET_TRANSPARENT_BORDER_FRACTION = 0.10
 _ORIGINAL_BOUNDS_SIZE = 5.0
 _HANGING_PLANE_Y = (_ORIGINAL_BOUNDS_SIZE * 0.5) + 1.0
 _HANGING_PLANE_FRAME_THICKNESS = 0.035
+_SCENE_CAMERA_FOV_DEG = 30.22  # 50mm equivalent on a 36x27mm 4:3 sensor.
 
 
 def _make_scene_cameras() -> list[Camera]:
@@ -30,7 +31,7 @@ def _make_scene_cameras() -> list[Camera]:
     cam1 = Camera(
         position=np.array([0.0, 0.0, radius], dtype=np.float32),
         target=origin,
-        fov=50.0,
+        fov=_SCENE_CAMERA_FOV_DEG,
         aspect=4.0 / 3.0,
         near=0.35,
         far=18.0,
@@ -40,7 +41,7 @@ def _make_scene_cameras() -> list[Camera]:
     cam2 = Camera(
         position=np.array([radius, 0.0, 0.0], dtype=np.float32),
         target=origin,
-        fov=50.0,
+        fov=_SCENE_CAMERA_FOV_DEG,
         aspect=4.0 / 3.0,
         near=0.35,
         far=18.0,
