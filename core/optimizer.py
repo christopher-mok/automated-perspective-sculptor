@@ -28,7 +28,7 @@ import torch.nn.functional as F
 
 from core.loss import masked_rgb_loss, negative_space_loss, sds_loss, silhouette_loss
 from core.renderer import DiffRenderer
-from optimizer.srd import SRDConfig, SRDOptimizer
+from optimizer.srd import StochasticRewriteDescent
 
 if TYPE_CHECKING:
     from core.patch import Patch
@@ -434,7 +434,7 @@ class SceneOptimizer:
         camera_bounds_weight: float = 0.3,
         camera_bounds_xy_limit: float = 0.98,
         hanging_plane_size: float = 5.0,
-        srd_config: SRDConfig | dict[str, object] | None = None,
+        srd_config: dict[str, object] | None = None,
     ) -> None:
         if not patches:
             raise ValueError("SceneOptimizer requires at least one patch.")
@@ -444,6 +444,7 @@ class SceneOptimizer:
         self.camera2 = camera2
         self.device = device
         self.resolution = resolution
+        self.render_resolutions = resolution
         self.view2_loss = view2_loss.lower()
         self.sds_prompt = sds_prompt
         self.sds_pipe = sds_pipe
@@ -484,30 +485,33 @@ class SceneOptimizer:
         self.optim = torch.optim.Adam(_parameter_groups(patches), lr=lr)
         snap_patches_to_palette(self.patches, self.palette)
         self._post_step_constraints()
-        if isinstance(srd_config, dict):
-            srd_config = SRDConfig(**srd_config)
         if srd_config is not None:
-            srd_config.lr = lr
-            half_plane = max(float(hanging_plane_size) * 0.5, 1e-4)
-            srd_config.scene_min_x = -half_plane
-            srd_config.scene_max_x = half_plane
-            srd_config.scene_min_z = -half_plane
-            srd_config.scene_max_z = half_plane
-            self.srd: SRDOptimizer | None = SRDOptimizer(
-                self,
-                (camera1, camera2),
-                (self.target1, self.target2),
-                srd_config,
-            ) if srd_config.enabled else None
-            if self.srd is not None:
-                self.optim = self.srd.optimizer
+            self.srd: StochasticRewriteDescent | None = StochasticRewriteDescent(**srd_config)
         else:
             self.srd = None
 
     def step(self, step_idx: int = 1, total_steps: int = 1) -> dict[str, float]:
+        metrics = self._continuous_step_with_optimizer(self.optim)
         if self.srd is not None:
-            return self.srd.step(step_idx)
-        return self._continuous_step_with_optimizer(self.optim)
+            stats = self.srd.step(
+                self,
+                self.optim,
+                metrics["loss"],
+                (self.camera1, self.camera2),
+                (self.target1, self.target2),
+                step_idx,
+            )
+            metrics.update({
+                "srd_active_patches": float(stats.active),
+                "srd_added": float(stats.added),
+                "srd_deleted": float(stats.deleted),
+                "srd_total_adds": float(stats.total_added),
+                "srd_total_deletes": float(stats.total_deleted),
+                "srd_evaluated": float(stats.evaluated),
+                "srd_promising": float(stats.promising),
+                "srd_accepted": float(stats.accepted),
+            })
+        return metrics
 
     def _continuous_step_with_optimizer(self, optimizer: torch.optim.Optimizer) -> dict[str, float]:
         optimizer.zero_grad(set_to_none=True)

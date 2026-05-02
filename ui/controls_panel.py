@@ -528,11 +528,6 @@ class SRDSection(QGroupBox):
         self._enabled.setStyleSheet(_LABEL_STYLE)
         layout.addWidget(self._enabled)
 
-        self._trigger_combo = QComboBox()
-        self._trigger_combo.addItems(["Step count", "Stagnation"])
-        self._trigger_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
-        layout.addLayout(_row("Trigger mode", self._trigger_combo))
-
         self._propose_slider, self._propose_lbl = _labeled_slider(20, 200, 50, "{}")
         self._propose_slider.valueChanged.connect(lambda v: self._propose_lbl.setText(str(v)))
         layout.addLayout(self._value_row("Propose every N steps", self._propose_lbl))
@@ -547,19 +542,6 @@ class SRDSection(QGroupBox):
         self._candidates_slider.valueChanged.connect(lambda v: self._candidates_lbl.setText(str(v)))
         layout.addLayout(self._value_row("Num candidates K", self._candidates_lbl))
         layout.addWidget(self._candidates_slider)
-
-        self._simplicity_slider, self._simplicity_lbl = _labeled_slider(0, 100, 10, "{:.2f}")
-        self._simplicity_lbl.setText(f"{self.simplicity_weight:.2f}")
-        self._simplicity_slider.valueChanged.connect(
-            lambda _v: self._simplicity_lbl.setText(f"{self.simplicity_weight:.2f}")
-        )
-        layout.addLayout(self._value_row("Simplicity weight", self._simplicity_lbl))
-        layout.addWidget(self._simplicity_slider)
-
-        self._parallel = QCheckBox("Parallel acceptance")
-        self._parallel.setChecked(True)
-        self._parallel.setStyleSheet(_LABEL_STYLE)
-        layout.addWidget(self._parallel)
 
         self._max_patches_slider, self._max_patches_lbl = _labeled_slider(10, 500, 200, "{}")
         self._max_patches_slider.valueChanged.connect(lambda v: self._max_patches_lbl.setText(str(v)))
@@ -586,19 +568,12 @@ class SRDSection(QGroupBox):
         return row
 
     @property
-    def simplicity_weight(self) -> float:
-        return self._simplicity_slider.value() / 100.0
-
-    @property
     def config(self) -> dict[str, object]:
         return {
             "enabled": self._enabled.isChecked(),
-            "proposal_trigger": "stagnation" if self._trigger_combo.currentText() == "Stagnation" else "step",
-            "propose_every": self._propose_slider.value(),
-            "proposal_steps": self._proposal_steps_slider.value(),
-            "num_candidates": self._candidates_slider.value(),
-            "w_simplicity": self.simplicity_weight,
-            "parallel_accept": self._parallel.isChecked(),
+            "interval": self._propose_slider.value(),
+            "rewrite_eval_steps": self._proposal_steps_slider.value(),
+            "candidate_count": self._candidates_slider.value(),
             "max_patches": self._max_patches_slider.value(),
             "min_patches": self._min_patches_slider.value(),
         }
@@ -615,12 +590,9 @@ class SRDSection(QGroupBox):
     def set_running(self, running: bool) -> None:
         for widget in (
             self._enabled,
-            self._trigger_combo,
             self._propose_slider,
             self._proposal_steps_slider,
             self._candidates_slider,
-            self._simplicity_slider,
-            self._parallel,
             self._max_patches_slider,
             self._min_patches_slider,
         ):
