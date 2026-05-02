@@ -479,6 +479,8 @@ class OptimizationSection(QGroupBox):
 
 
 class ExportSection(QGroupBox):
+    export_requested = pyqtSignal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Export", parent)
         self.setStyleSheet(_SECTION_STYLE)
@@ -487,16 +489,17 @@ class ExportSection(QGroupBox):
         layout.setContentsMargins(10, 14, 10, 10)
         layout.setSpacing(8)
 
-        self._export_btn = QPushButton("Export SVG for laser cutter")
+        self._export_btn = QPushButton("Export pieces JSON")
         self._export_btn.setEnabled(False)
         self._export_btn.setStyleSheet(
             "QPushButton { background: #3a3a3a; color: #777; border-radius: 4px; padding: 6px; }"
             "QPushButton:enabled { background: #5a3e7a; color: #fff; }"
             "QPushButton:enabled:hover { background: #6f4e96; }"
         )
+        self._export_btn.clicked.connect(self.export_requested.emit)
         layout.addWidget(self._export_btn)
 
-        note = QLabel("Run optimization first to enable export.")
+        note = QLabel("Run optimization first to export to exports/pieces.json.")
         note.setStyleSheet("color: #666; font-size: 11px; font-style: italic;")
         note.setWordWrap(True)
         layout.addWidget(note)

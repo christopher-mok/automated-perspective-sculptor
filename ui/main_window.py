@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
         self._controls.optimization.pause_toggled.connect(self._on_pause_optimization)
         self._controls.optimization.palette_changed.connect(self._on_palette_changed)
         self._controls.optimization.reset_requested.connect(self._on_reset)
+        self._controls.export.export_requested.connect(self._on_export_json)
 
     # ------------------------------------------------------------------
     # Signal handlers
@@ -312,6 +313,27 @@ class MainWindow(QMainWindow):
             return
 
         self._reset_state()
+
+    def _on_export_json(self) -> None:
+        if not self._patches:
+            QMessageBox.warning(self, "Export", "No patches to export.")
+            return
+
+        try:
+            from core.export import export_patches_to_json
+
+            output_path = export_patches_to_json(self._patches)
+        except Exception as exc:
+            QMessageBox.warning(self, "Export failed", str(exc))
+            print(f"[Export] failed: {exc}")
+            return
+
+        QMessageBox.information(
+            self,
+            "Export complete",
+            f"Saved piece data to {output_path}",
+        )
+        print(f"[Export] wrote JSON to {output_path}")
 
     def _reset_state(self) -> None:
         self._worker = None
