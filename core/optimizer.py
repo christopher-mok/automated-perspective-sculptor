@@ -434,6 +434,7 @@ class SceneOptimizer:
         camera_bounds_weight: float = 0.3,
         camera_bounds_xy_limit: float = 0.98,
         hanging_plane_size: float = 5.0,
+        min_patch_area: float = 0.001,
         srd_config: dict[str, object] | None = None,
     ) -> None:
         if not patches:
@@ -457,6 +458,7 @@ class SceneOptimizer:
         self.camera_bounds_weight = camera_bounds_weight
         self.camera_bounds_xy_limit = camera_bounds_xy_limit
         self.hanging_plane_size = hanging_plane_size
+        self.min_patch_area = min_patch_area
 
         self.palette = parse_palette(palette).to(device)
         target1_fit = fit_image_to_resolution(target1, self.resolution, device)
@@ -491,7 +493,10 @@ class SceneOptimizer:
             self.srd = None
 
     def step(self, step_idx: int = 1, total_steps: int = 1) -> dict[str, float]:
+        smallest_area = self._smallest_patch_area()
         metrics = self._continuous_step_with_optimizer(self.optim)
+        metrics["smallest_patch_area"] = smallest_area
+        metrics["tiny_patches_deleted"] = 0.0
         if self.srd is not None:
             stats = self.srd.step(
                 self,
@@ -511,7 +516,13 @@ class SceneOptimizer:
                 "srd_promising": float(stats.promising),
                 "srd_accepted": float(stats.accepted),
             })
+            metrics["tiny_patches_deleted"] = float(stats.deleted)
         return metrics
+
+    def _smallest_patch_area(self) -> float:
+        if not self.patches:
+            return 0.0
+        return min(float(patch.compute_area().detach().cpu()) for patch in self.patches)
 
     def _continuous_step_with_optimizer(self, optimizer: torch.optim.Optimizer) -> dict[str, float]:
         optimizer.zero_grad(set_to_none=True)

@@ -158,6 +158,12 @@ class StochasticRewriteDescent:
         if not self.enabled or self.interval <= 0 or current_step % self.interval != 0:
             return self.stats
 
+        tiny_deletes = self._tiny_area_delete_rewrites(model)
+        if tiny_deletes:
+            self._apply_rewrites(model, optimizer, tiny_deletes, current_step)
+            self.stats.accepted += len(tiny_deletes)
+            self.stats.active = len(model.patches)
+
         mandatory_deletes = self._mandatory_delete_rewrites(model, current_step)
         if mandatory_deletes:
             self._apply_rewrites(model, optimizer, mandatory_deletes, current_step)
@@ -195,7 +201,7 @@ class StochasticRewriteDescent:
         for candidate in accepted:
             patch_ref = candidate.applied_index if candidate.applied_index is not None else candidate.patch_index
             print(f"  Accepted {candidate.label} at patch {patch_ref}, improvement={candidate.improvement:.6f}")
-        for candidate in mandatory_deletes:
+        for candidate in [*tiny_deletes, *mandatory_deletes]:
             patch_ref = candidate.applied_index if candidate.applied_index is not None else candidate.patch_index
             print(f"  Mandatory {candidate.label} at patch {patch_ref}, reason={candidate.reason}")
         print(
@@ -203,6 +209,26 @@ class StochasticRewriteDescent:
             f"total deletes: {self.stats.total_deleted}"
         )
         return self.stats
+
+    def _tiny_area_delete_rewrites(self, model) -> list[RewriteCandidate]:
+        """Delete all below-threshold pieces at the start of a rewrite step."""
+        if len(model.patches) <= 1:
+            return []
+
+        areas = [float(patch.compute_area().detach().cpu()) for patch in model.patches]
+        indices = [idx for idx, area in enumerate(areas) if area < self.min_patch_area]
+        if len(indices) >= len(model.patches):
+            keep_idx = min(range(len(areas)), key=lambda idx: areas[idx])
+            indices = [idx for idx in indices if idx != keep_idx]
+
+        return [
+            RewriteCandidate(
+                kind="delete",
+                patch_index=idx,
+                reason=f"Area {areas[idx]:.6f} below minimum {self.min_patch_area}",
+            )
+            for idx in indices
+        ]
 
     def _mandatory_delete_rewrites(self, model, current_step: int) -> list[RewriteCandidate]:
         """Find patches that must be deleted before stochastic SRD scoring."""
