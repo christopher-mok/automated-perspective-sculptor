@@ -102,7 +102,7 @@ class PatchesSection(QGroupBox):
 
         # Initialization dropdown
         self._init_combo = QComboBox()
-        self._init_combo.addItems(["SAM segmentation", "Grid", "Random", "Experimental"])
+        self._init_combo.addItems(["Experimental", "SAM segmentation"])
         self._init_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
         self._init_combo.currentTextChanged.connect(self._on_mode_changed)
         layout.addLayout(_row("Initialization", self._init_combo))
@@ -330,7 +330,7 @@ class OptimizationSection(QGroupBox):
         palette_lbl = QLabel("Palette")
         palette_lbl.setStyleSheet(_LABEL_STYLE)
         self._palette_input = QLineEdit()
-        self._palette_input.setText("#111111, #f5f5f5")
+        self._palette_input.setText("#FFFFFF")
         self._palette_input.setPlaceholderText("#111111, #f4d35e, #2f6690")
         self._palette_input.setStyleSheet(
             "color: #ddd; background: #2a2a2a; border: 1px solid #444; border-radius: 3px; padding: 4px;"
