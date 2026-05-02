@@ -6,7 +6,7 @@ notebooks, or the UI worker thread equally.
 
 Typical use (from a script)
 ---------------------------
-    optimizer = SceneOptimizer(patches, renderer, cam1, cam2, t1, t2, lr=1e-3)
+    optimizer = SceneOptimizer(patches, cam1, cam2, target1_mask, target2_mask, lr=1e-3)
     for step, metrics in optimizer.run(n_steps=500):
         print(step, metrics["loss"])
 
@@ -19,14 +19,13 @@ Typical use (from the UI worker)
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from core.loss import masked_rgb_loss, sds_loss, silhouette_loss
+from core.loss import sds_loss, silhouette_loss
 from core.renderer import DiffRenderer
 
 if TYPE_CHECKING:
@@ -91,108 +90,62 @@ def parse_palette(text: str | Sequence[str] | Sequence[Sequence[float]] | None) 
     return torch.tensor(colors, dtype=torch.float32).clamp(0.0, 1.0)
 
 
-def image_to_tensor(image: str | Path | np.ndarray | torch.Tensor, device: str = "cpu") -> torch.Tensor:
-    """Load/convert an image to (H, W, 3) float32 in [0, 1]."""
-    if isinstance(image, torch.Tensor):
-        t = image.detach().to(device=device, dtype=torch.float32)
-        if t.max() > 1.0:
-            t = t / 255.0
-        return t[..., :3].clamp(0.0, 1.0)
-
-    if isinstance(image, (str, Path)):
-        from PIL import Image
-
-        arr = np.array(Image.open(image).convert("RGB"))
+def mask_to_tensor(mask: np.ndarray | torch.Tensor, device: str = "cpu") -> torch.Tensor:
+    """Convert a binary mask to (H, W, 1) float32 in {0, 1}."""
+    if isinstance(mask, torch.Tensor):
+        t = mask.detach().to(device=device, dtype=torch.float32)
     else:
-        arr = np.asarray(image)
+        t = torch.from_numpy(np.asarray(mask)).to(device=device, dtype=torch.float32)
 
-    if arr.ndim == 2:
-        arr = np.repeat(arr[..., None], 3, axis=-1)
-    arr = arr[..., :3]
-    t = torch.from_numpy(arr).to(device=device, dtype=torch.float32)
+    if t.ndim == 2:
+        t = t.unsqueeze(-1)
+    elif t.ndim == 3:
+        # Support both HWC and CHW layouts.
+        if t.shape[-1] in (1, 3, 4):
+            t = t[..., :1]
+        elif t.shape[0] in (1, 3, 4):
+            t = t[:1].permute(1, 2, 0)
+        else:
+            raise ValueError(
+                f"Unsupported 3D mask shape {tuple(t.shape)}. "
+                "Expected HxWx1 or 1xHxW."
+            )
+    else:
+        raise ValueError(f"Mask must have shape (H,W) or (H,W,1), got {tuple(t.shape)}.")
+
     if t.max() > 1.0:
         t = t / 255.0
-    return t.clamp(0.0, 1.0)
+    return (t >= 0.5).to(dtype=torch.float32)
 
 
-def fit_image_to_resolution(
-    image: str | Path | np.ndarray | torch.Tensor,
+def fit_mask_to_resolution(
+    mask: np.ndarray | torch.Tensor,
     resolution: tuple[int, int],
     device: str = "cpu",
 ) -> torch.Tensor:
-    """Scale an image into a fixed canvas without changing its aspect ratio."""
-    img = image_to_tensor(image, device)
+    """Center-fit a binary mask into target resolution using nearest resize."""
+    src = mask_to_tensor(mask, device)
     target_h, target_w = resolution
-    src_h, src_w = img.shape[:2]
+    src_h, src_w = src.shape[:2]
     if src_h <= 0 or src_w <= 0:
-        return torch.zeros(target_h, target_w, 3, device=device)
+        return torch.zeros(target_h, target_w, 1, device=device)
 
     scale = min(target_w / src_w, target_h / src_h)
     new_w = max(1, int(round(src_w * scale)))
     new_h = max(1, int(round(src_h * scale)))
 
-    corners = torch.stack([
-        img[0, 0],
-        img[0, -1],
-        img[-1, 0],
-        img[-1, -1],
-    ])
-    background = corners.median(dim=0).values
-    canvas = background.view(1, 1, 3).expand(target_h, target_w, 3).clone()
-
-    resized = img.permute(2, 0, 1).unsqueeze(0)
+    resized = src.permute(2, 0, 1).unsqueeze(0)
     resized = F.interpolate(
         resized,
         size=(new_h, new_w),
-        mode="bilinear",
-        align_corners=False,
+        mode="nearest",
     ).squeeze(0).permute(1, 2, 0)
 
+    canvas = torch.zeros(target_h, target_w, 1, device=device, dtype=torch.float32)
     top = (target_h - new_h) // 2
     left = (target_w - new_w) // 2
     canvas[top:top + new_h, left:left + new_w] = resized
-    return canvas.clamp(0.0, 1.0)
-
-
-def quantize_to_palette(image: torch.Tensor, palette: torch.Tensor) -> torch.Tensor:
-    """Map every pixel to the nearest user-selected colour."""
-    img = image[..., :3]
-    pal = palette.to(device=img.device, dtype=img.dtype).clamp(0.0, 1.0)
-    flat = img.reshape(-1, 3)
-    distances = ((flat[:, None, :] - pal[None, :, :]) ** 2).sum(dim=-1)
-    nearest = distances.argmin(dim=1)
-    return pal[nearest].reshape_as(img)
-
-
-def foreground_mask_from_image(
-    image: str | Path | np.ndarray | torch.Tensor,
-    palette: torch.Tensor,
-    device: str = "cpu",
-    resolution: tuple[int, int] | None = None,
-) -> torch.Tensor:
-    """Estimate target foreground as pixels that differ from the corner background."""
-    img = (
-        fit_image_to_resolution(image, resolution, device)
-        if resolution is not None else image_to_tensor(image, device)
-    )
-    q = quantize_to_palette(img, palette)
-    h, w = q.shape[:2]
-    band = max(1, min(h, w) // 20)
-    corners = torch.cat([
-        img[:band, :band].reshape(-1, 3),
-        img[:band, -band:].reshape(-1, 3),
-        img[-band:, :band].reshape(-1, 3),
-        img[-band:, -band:].reshape(-1, 3),
-    ])
-    bg_rgb = corners.median(dim=0).values
-    pal = palette.to(device=img.device, dtype=img.dtype)
-    bg_idx = ((pal - bg_rgb.unsqueeze(0)) ** 2).sum(dim=1).argmin()
-    bg_color = pal[bg_idx]
-    mask = (((q - bg_color) ** 2).sum(dim=-1, keepdim=True) > 1e-6).float()
-    if float(mask.mean().detach().cpu()) < 1e-4:
-        distances = ((img - bg_rgb) ** 2).sum(dim=-1, keepdim=True)
-        mask = (distances > 0.02 ** 2).float()
-    return mask
+    return canvas
 
 
 def snap_patches_to_palette(
@@ -414,15 +367,15 @@ def constrain_theta_to_camera_band(
 
 
 class SceneOptimizer:
-    """Render, compare to quantized target images, and Adam-step patches."""
+    """Render, compare to binary silhouette masks, and Adam-step patches."""
 
     def __init__(
         self,
         patches: list["Patch"],
         camera1: "Camera",
         camera2: "Camera",
-        target1: str | Path | np.ndarray | torch.Tensor,
-        target2: str | Path | np.ndarray | torch.Tensor | None = None,
+        target1_mask: np.ndarray | torch.Tensor,
+        target2_mask: np.ndarray | torch.Tensor | None = None,
         *,
         palette: str | Sequence[str] | Sequence[Sequence[float]] | None = None,
         renderer: DiffRenderer | None = None,
@@ -467,24 +420,10 @@ class SceneOptimizer:
         self.camera_bounds_xy_limit = camera_bounds_xy_limit
 
         self.palette = parse_palette(palette).to(device)
-        target1_fit = fit_image_to_resolution(target1, self.resolution, device)
-        self.target1 = quantize_to_palette(target1_fit, self.palette)
-        self.target1_mask = foreground_mask_from_image(
-            target1_fit,
-            self.palette,
-            device,
-        )
-        target2_fit = (
-            fit_image_to_resolution(target2, self.resolution, device)
-            if target2 is not None else None
-        )
-        self.target2 = (
-            quantize_to_palette(target2_fit, self.palette)
-            if target2_fit is not None else None
-        )
+        self.target1_mask = fit_mask_to_resolution(target1_mask, self.resolution, device)
         self.target2_mask = (
-            foreground_mask_from_image(target2_fit, self.palette, device)
-            if target2_fit is not None else None
+            fit_mask_to_resolution(target2_mask, self.resolution, device)
+            if target2_mask is not None else None
         )
 
         self.renderer = renderer or DiffRenderer(device=device, n_per_segment=n_per_segment)
@@ -529,20 +468,21 @@ class SceneOptimizer:
         render2: torch.Tensor,
         patches: Sequence["Patch"],
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        loss1_rgb = masked_rgb_loss(render1, self.target1, self.target1_mask)
         loss1_silhouette = silhouette_loss(render1, self.target1_mask)
-        loss1 = loss1_rgb + self.silhouette_weight * loss1_silhouette
+        loss1 = self.silhouette_weight * loss1_silhouette
+        loss2_term = torch.zeros((), device=loss1.device)
         loss2 = torch.zeros((), device=loss1.device)
         loss2_silhouette = torch.zeros((), device=loss1.device)
         if self.view2_loss.startswith("sds"):
             if not self.sds_prompt:
                 raise ValueError("SDS optimization requires a text prompt.")
             loss2 = sds_loss(render2[..., :3], self.sds_prompt, self.sds_pipe)
-        elif self.target2 is not None:
+            loss2_term = loss2
+        elif self.target2_mask is not None:
             assert self.target2_mask is not None
-            loss2_rgb = masked_rgb_loss(render2, self.target2, self.target2_mask)
             loss2_silhouette = silhouette_loss(render2, self.target2_mask)
-            loss2 = loss2_rgb + self.silhouette_weight * loss2_silhouette
+            loss2_term = loss2_silhouette
+            loss2 = self.silhouette_weight * loss2_silhouette
 
         if patches:
             overlap = patch_overlap_loss(patches, self.overlap_margin)
@@ -568,8 +508,8 @@ class SceneOptimizer:
             + self.camera_bounds_weight * camera_bounds
         )
         return loss, {
-            "loss1": loss1,
-            "loss2": loss2,
+            "loss1": loss1_silhouette,
+            "loss2": loss2_term,
             "loss1_silhouette": loss1_silhouette,
             "loss2_silhouette": loss2_silhouette,
             "overlap": overlap,

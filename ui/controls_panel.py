@@ -230,7 +230,7 @@ class OptimizationSection(QGroupBox):
 
         # View 2 loss dropdown
         self._loss_combo = QComboBox()
-        self._loss_combo.addItems(["MSE (target image)", "SDS (text prompt)"])
+        self._loss_combo.addItems(["MSE (target mask)", "SDS (text prompt)"])
         self._loss_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
         self._loss_combo.currentTextChanged.connect(self._on_loss_changed)
         layout.addLayout(_row("View 2 loss", self._loss_combo))

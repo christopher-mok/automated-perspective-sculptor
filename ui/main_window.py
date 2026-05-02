@@ -13,6 +13,25 @@ from ui.image_panel import ImagePanel
 from ui.viewport import Viewport
 
 
+def _binary_foreground_mask_from_grayscale(gray: np.ndarray) -> np.ndarray:
+    """Return (H, W, 1) float32 mask with black pixels as foreground."""
+    if gray.ndim != 2:
+        raise ValueError("Expected a grayscale image with shape (H, W).")
+    return (gray <= 127).astype(np.float32)[..., None]
+
+
+def _load_target_image_and_mask(path: str) -> tuple[np.ndarray, np.ndarray, bool]:
+    """Load one target image and return (rgb_uint8, binary_mask, is_strict_bw)."""
+    from PIL import Image
+
+    image = Image.open(path)
+    rgb = np.array(image.convert("RGB"))
+    gray = np.array(image.convert("L"), dtype=np.uint8)
+    mask = _binary_foreground_mask_from_grayscale(gray)
+    is_strict_bw = bool(np.isin(gray, (0, 255)).all())
+    return rgb, mask, is_strict_bw
+
+
 def _make_scene_cameras() -> list[Camera]:
     """Create two scene cameras 90° apart, each aimed straight along its axis.
 
@@ -122,8 +141,10 @@ class MainWindow(QMainWindow):
 
         # Patch state
         self._patches: list = []
-        self._target1_img: np.ndarray | None = None  # uint8 (H,W,3) for SAM
+        self._target1_img: np.ndarray | None = None  # uint8 (H,W,3) retained for SAM init
         self._target2_img: np.ndarray | None = None
+        self._target1_mask: np.ndarray | None = None  # float32 (H,W,1), black=fg
+        self._target2_mask: np.ndarray | None = None
         self._worker = None
         self._optimization_run_until_convergence = False
         self._reset_after_worker_stops = False
@@ -160,14 +181,28 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_view1_loaded(self, path: str) -> None:
-        from PIL import Image
-        self._target1_img = np.array(Image.open(path).convert("RGB"))
-        print(f"[View 1 target] loaded: {path}")
+        self._target1_img, self._target1_mask, is_bw = _load_target_image_and_mask(path)
+        fg_pct = float(self._target1_mask.mean() * 100.0)
+        if not is_bw:
+            QMessageBox.information(
+                self,
+                "View 1 image thresholded",
+                "View 1 is not strictly black/white. "
+                "It was auto-thresholded at 127 (black=foreground, white=background).",
+            )
+        print(f"[View 1 target] loaded: {path} (foreground={fg_pct:.1f}%)")
 
     def _on_view2_loaded(self, path: str) -> None:
-        from PIL import Image
-        self._target2_img = np.array(Image.open(path).convert("RGB"))
-        print(f"[View 2 target] loaded: {path}")
+        self._target2_img, self._target2_mask, is_bw = _load_target_image_and_mask(path)
+        fg_pct = float(self._target2_mask.mean() * 100.0)
+        if not is_bw:
+            QMessageBox.information(
+                self,
+                "View 2 image thresholded",
+                "View 2 is not strictly black/white. "
+                "It was auto-thresholded at 127 (black=foreground, white=background).",
+            )
+        print(f"[View 2 target] loaded: {path} (foreground={fg_pct:.1f}%)")
 
     def _on_initialize(self, n_patches: int, mode: str) -> None:
         from core.initialization import initialize_patches
@@ -202,8 +237,8 @@ class MainWindow(QMainWindow):
         if not self._patches:
             QMessageBox.warning(self, "Run optimization", "Initialize patches first.")
             return
-        if self._target1_img is None:
-            QMessageBox.warning(self, "Run optimization", "Load a View 1 target image first.")
+        if self._target1_mask is None:
+            QMessageBox.warning(self, "Run optimization", "Load a View 1 black/white target image first.")
             return
         if self._worker is not None and self._worker.isRunning():
             return
@@ -214,6 +249,13 @@ class MainWindow(QMainWindow):
         view2_loss = "sds" if "SDS" in opt.loss_type else "mse"
         if view2_loss == "sds" and not opt.sds_prompt.strip():
             QMessageBox.warning(self, "Run optimization", "Enter an SDS prompt first.")
+            return
+        if view2_loss == "mse" and self._target2_mask is None:
+            QMessageBox.warning(
+                self,
+                "Run optimization",
+                "Load a View 2 black/white target image for MSE mode, or switch View 2 loss to SDS.",
+            )
             return
 
         try:
@@ -230,8 +272,8 @@ class MainWindow(QMainWindow):
         self._worker = OptimizationWorker(
             patches=self._patches,
             cameras=self._scene.cameras,
-            target1=self._target1_img,
-            target2=self._target2_img,
+            target1_mask=self._target1_mask,
+            target2_mask=self._target2_mask,
             palette=opt.palette,
             lr=opt.learning_rate,
             n_steps=opt.n_steps,
@@ -320,6 +362,8 @@ class MainWindow(QMainWindow):
         self._patches = []
         self._target1_img = None
         self._target2_img = None
+        self._target1_mask = None
+        self._target2_mask = None
         self._image_panel.reset()
         self._viewport.reset()
         self._controls.optimization.reset_controls()

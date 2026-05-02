@@ -1,4 +1,4 @@
-"""Left panel: two image upload slots for View 1 and View 2 target images."""
+"""Left panel: two image upload slots for View 1 and View 2 silhouette targets."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class DropZone(QLabel):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self._set_empty_style()
-        self.setText("Drop image here\nor click to browse")
+        self.setText("Drop B/W image here\nblack=foreground")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     # ------------------------------------------------------------------
@@ -109,7 +109,7 @@ class DropZone(QLabel):
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Open target image",
+            "Open black/white target image",
             "",
             "Images (*.png *.jpg *.jpeg *.bmp *.tiff *.tif *.webp)",
         )
@@ -137,7 +137,7 @@ class DropZone(QLabel):
 
     def reset(self) -> None:
         super().clear()
-        self.setText("Drop image here\nor click to browse")
+        self.setText("Drop B/W image here\nblack=foreground")
         self._set_empty_style()
 
 
