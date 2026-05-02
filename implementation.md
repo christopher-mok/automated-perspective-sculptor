@@ -370,7 +370,7 @@ How it works:
 - Sends mesh snapshots to the viewport.
 - Updates camera previews.
 - Updates the fixed-step progress bar.
-- Logs periodic total loss, raw per-term averages, and weighted geometric penalty contributions.
+- Logs periodic total loss, view RGB losses, full per-view totals, raw per-term averages, and weighted geometric penalty contributions.
 - Includes separate view 1 and view 2 negative-space losses in the debug output.
 
 ### `_on_pause_optimization(paused)`
@@ -1860,22 +1860,27 @@ The optimizer combines image-space losses with geometric penalties.
 View 1 always uses target-image matching:
 
 ```text
-view1_loss = masked_rgb_loss(render1, target1, mask1)
-           + silhouette_weight * silhouette_loss(render1, mask1)
+view1_rgb = masked_rgb_loss(render1, target1, mask1)
+view1_total = view1_rgb
+            + silhouette_weight * silhouette_loss(render1, mask1)
+            + negative_space_weight * negative_space_loss(render1, mask1)
 ```
 
 Significance:
 
 - The RGB term matches foreground color.
 - The silhouette term matches the target shape using rendered alpha.
+- The total term is the full per-view contribution used by the optimizer.
 
 ### View 2 image loss
 
 If view 2 target-image mode is selected and a second target exists:
 
 ```text
-view2_loss = masked_rgb_loss(render2, target2, mask2)
-           + silhouette_weight * silhouette_loss(render2, mask2)
+view2_rgb = masked_rgb_loss(render2, target2, mask2)
+view2_total = view2_rgb
+            + silhouette_weight * silhouette_loss(render2, mask2)
+            + negative_space_weight * negative_space_loss(render2, mask2)
 ```
 
 If SDS mode is selected, the optimizer can use:
@@ -1973,9 +1978,8 @@ The main optimizer step combines terms as:
 
 ```text
 total_loss =
-    view1_loss
-  + view2_loss
-  + negative_space_weight * (view1_negative_space + view2_negative_space)
+    view1_total
+  + view2_total
   + overlap_weight * overlap_loss
   + visibility_weight * visibility_loss
   + camera_bounds_weight * camera_bounds_loss

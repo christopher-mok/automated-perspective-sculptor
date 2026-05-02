@@ -461,8 +461,10 @@ class SceneOptimizer:
         loss_value = float(loss.detach().cpu())
         return {
             "loss": loss_value,
-            "view1_mse": float(components["loss1_rgb"].detach().cpu()),
-            "view2_loss": float(components["loss2_rgb_or_sds"].detach().cpu()),
+            "view1_rgb": float(components["loss1_rgb"].detach().cpu()),
+            "view2_rgb": float(components["loss2_rgb_or_sds"].detach().cpu()),
+            "view1_total": float(components["loss1"].detach().cpu()),
+            "view2_total": float(components["loss2"].detach().cpu()),
             "view1_silhouette": float(components["loss1_silhouette"].detach().cpu()),
             "view2_silhouette": float(components["loss2_silhouette"].detach().cpu()),
             "view1_negative_space": float(components["loss1_negative_space"].detach().cpu()),
@@ -492,7 +494,11 @@ class SceneOptimizer:
         render2: torch.Tensor,
         patches: Sequence["Patch"],
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        loss1_rgb = masked_rgb_loss(render1, self.target1, self.target1_mask)
+        # For B&W with white pieces: use the foreground mask as the RGB target.
+        # Uncovered foreground pixels render as black (0) vs target white (1) → real gradient.
+        # Using the raw target image is degenerate when foreground is dark and pieces are white.
+        target1_bw = self.target1_mask.expand(-1, -1, 3)
+        loss1_rgb = masked_rgb_loss(render1, target1_bw, self.target1_mask)
         loss1_silhouette = silhouette_loss(render1, self.target1_mask)
         loss1_negative_space = negative_space_loss(render1, self.target1_mask)
         loss1 = (
@@ -511,7 +517,8 @@ class SceneOptimizer:
             loss2_rgb_or_sds = loss2
         elif self.target2 is not None:
             assert self.target2_mask is not None
-            loss2_rgb = masked_rgb_loss(render2, self.target2, self.target2_mask)
+            target2_bw = self.target2_mask.expand(-1, -1, 3)
+            loss2_rgb = masked_rgb_loss(render2, target2_bw, self.target2_mask)
             loss2_rgb_or_sds = loss2_rgb
             loss2_silhouette = silhouette_loss(render2, self.target2_mask)
             loss2_negative_space = negative_space_loss(render2, self.target2_mask)

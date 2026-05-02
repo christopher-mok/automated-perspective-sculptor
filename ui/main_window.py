@@ -267,8 +267,10 @@ class MainWindow(QMainWindow):
             if isinstance(metrics, dict):
                 print(
                     f"[Optimization] step={step_idx}, loss={loss:.6f}, "
-                    f"terms(avg): view1={metrics.get('view1_mse', 0.0):.6f}, "
-                    f"view2={metrics.get('view2_loss', 0.0):.6f}, "
+                    f"terms(avg): view1_rgb={metrics.get('view1_rgb', 0.0):.6f}, "
+                    f"view2_rgb={metrics.get('view2_rgb', 0.0):.6f}, "
+                    f"view1_total={metrics.get('view1_total', 0.0):.6f}, "
+                    f"view2_total={metrics.get('view2_total', 0.0):.6f}, "
                     f"view1_sil={metrics.get('view1_silhouette', 0.0):.6f}, "
                     f"view2_sil={metrics.get('view2_silhouette', 0.0):.6f}, "
                     f"view1_neg={metrics.get('view1_negative_space', 0.0):.6f}, "
