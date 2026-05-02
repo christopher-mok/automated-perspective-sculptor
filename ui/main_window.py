@@ -309,12 +309,12 @@ class MainWindow(QMainWindow):
         if opt.run_until_convergence:
             print(
                 f"[Optimization] started: until loss <= {opt.convergence_threshold:.3e}, "
-                f"lr={opt.learning_rate:.3e}, palette={opt.palette!r}"
+                f"lr={opt.learning_rate:.3e}, palette={opt.palette!r}, targets=mask"
             )
         else:
             print(
                 f"[Optimization] started: steps={opt.n_steps}, lr={opt.learning_rate:.3e}, "
-                f"palette={opt.palette!r}"
+                f"palette={opt.palette!r}, targets=mask"
             )
 
     def _on_optimization_step(self, step_idx: int, metrics: object, meshes: object) -> None:

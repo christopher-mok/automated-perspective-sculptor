@@ -509,6 +509,7 @@ class SceneOptimizer:
 
         self.palette = parse_palette(palette).to(device)
         target1_fit = fit_image_to_resolution(target1, self.resolution, device)
+        self.target1_is_mask = target1_fit.shape[-1] >= 4
         self.target1 = quantize_to_palette(target1_fit, self.palette)
         self.target1_mask = foreground_mask_from_image(
             target1_fit,
@@ -519,6 +520,7 @@ class SceneOptimizer:
             fit_image_to_resolution(target2, self.resolution, device)
             if target2 is not None else None
         )
+        self.target2_is_mask = target2_fit is not None and target2_fit.shape[-1] >= 4
         self.target2 = (
             quantize_to_palette(target2_fit, self.palette)
             if target2_fit is not None else None
@@ -578,7 +580,10 @@ class SceneOptimizer:
         render2: torch.Tensor,
         patches: Sequence["Patch"],
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        loss1_rgb = masked_rgb_loss(render1, self.target1, self.target1_mask)
+        loss1_rgb = (
+            torch.zeros((), device=render1.device)
+            if self.target1_is_mask else masked_rgb_loss(render1, self.target1, self.target1_mask)
+        )
         loss1_silhouette = silhouette_loss(render1, self.target1_mask)
         loss1_negative_space = negative_space_loss(render1, self.target1_mask)
         loss1 = (
@@ -598,7 +603,10 @@ class SceneOptimizer:
                 loss2 = loss2 + self.negative_space_weight * loss2_negative_space
         elif self.target2 is not None:
             assert self.target2_mask is not None
-            loss2_rgb = masked_rgb_loss(render2, self.target2, self.target2_mask)
+            loss2_rgb = (
+                torch.zeros((), device=render2.device)
+                if self.target2_is_mask else masked_rgb_loss(render2, self.target2, self.target2_mask)
+            )
             loss2_silhouette = silhouette_loss(render2, self.target2_mask)
             loss2_negative_space = negative_space_loss(render2, self.target2_mask)
             loss2 = (
