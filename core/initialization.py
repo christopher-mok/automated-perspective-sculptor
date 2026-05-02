@@ -211,7 +211,7 @@ def init_sam(
     the segment's mean colour.
 
     Args:
-        image:       (H, W, 3) uint8 RGB numpy array.
+        image:       (H, W, 3/4) uint8 RGB/RGBA numpy array.
         n_patches:   Desired total number of patches.
         bounds:      World-space XZ extent.
         radius:      Base spline radius (scaled per segment).
@@ -253,11 +253,12 @@ def init_sam(
         stability_score_thresh=0.95,
         min_mask_region_area=200,
     )
-    masks = generator.generate(image)
+    image_rgb = image[..., :3]
+    masks = generator.generate(image_rgb)
     masks = sorted(masks, key=lambda m: m["area"], reverse=True)[:n_patches]
 
     x_min, x_max, z_min, z_max = bounds
-    H, W = image.shape[:2]
+    H, W = image_rgb.shape[:2]
 
     patches: list[Patch] = []
     for i, mask_data in enumerate(masks):
@@ -273,7 +274,7 @@ def init_sam(
         patch_radius = float(np.clip(radius * footprint * 6.0, radius * 0.4, radius * 3.0))
 
         seg: np.ndarray = mask_data["segmentation"]
-        mean_rgb = (image[seg].mean(axis=0) / 255.0).tolist() if seg.any() else [1.0, 1.0, 1.0]
+        mean_rgb = (image_rgb[seg].mean(axis=0) / 255.0).tolist() if seg.any() else [1.0, 1.0, 1.0]
 
         patches.append(_make_patch(
             center=[wx, y, wz],

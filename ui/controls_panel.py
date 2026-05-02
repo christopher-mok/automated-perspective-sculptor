@@ -76,6 +76,7 @@ def _labeled_slider(
 
 class PatchesSection(QGroupBox):
     initialize_requested = pyqtSignal(int, str)   # n_patches, init_mode
+    hanging_plane_size_changed = pyqtSignal(float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Patches", parent)
@@ -106,6 +107,19 @@ class PatchesSection(QGroupBox):
         self._init_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
         self._init_combo.currentTextChanged.connect(self._on_mode_changed)
         layout.addLayout(_row("Initialization", self._init_combo))
+
+        # Hanging plane footprint
+        self._plane_slider, self._plane_lbl = _labeled_slider(10, 100, 50, "{:.1f}")
+        self._plane_lbl.setText(f"{self.hanging_plane_size:.1f}")
+        self._plane_slider.valueChanged.connect(self._on_plane_size_changed)
+        plane_row = QHBoxLayout()
+        plane_lbl = QLabel("Hanging plane size")
+        plane_lbl.setStyleSheet(_LABEL_STYLE)
+        plane_row.addWidget(plane_lbl)
+        plane_row.addStretch()
+        plane_row.addWidget(self._plane_lbl)
+        layout.addLayout(plane_row)
+        layout.addWidget(self._plane_slider)
 
         # SAM model selector (only visible in SAM mode)
         self._sam_model_lbl = QLabel("SAM model")
@@ -168,6 +182,27 @@ class PatchesSection(QGroupBox):
     def sam_model(self) -> str:
         """Returns the selected SAM variant label."""
         return self._sam_model_combo.currentText()
+
+    @property
+    def hanging_plane_size(self) -> float:
+        """Returns the square hanging plane side length in scene units."""
+        return self._plane_slider.value() / 10.0
+
+    def _on_plane_size_changed(self, value: int) -> None:
+        size = value / 10.0
+        self._plane_lbl.setText(f"{size:.1f}")
+        self.hanging_plane_size_changed.emit(size)
+
+    def set_running(self, running: bool) -> None:
+        for widget in (
+            self._n_slider,
+            self._init_combo,
+            self._sam_model_combo,
+            self._device_combo,
+            self._plane_slider,
+            self._init_btn,
+        ):
+            widget.setEnabled(not running)
 
     @property
     def device(self) -> str:

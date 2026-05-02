@@ -32,6 +32,7 @@ class OptimizationWorker(QThread):
         view2_loss: str,
         sds_prompt: str,
         device: str,
+        hanging_plane_size: float,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -47,6 +48,7 @@ class OptimizationWorker(QThread):
         self._view2_loss = view2_loss
         self._sds_prompt = sds_prompt
         self._device = device
+        self._hanging_plane_size = hanging_plane_size
         self._stop_requested = False
         self._pause_requested = False
 
@@ -74,6 +76,7 @@ class OptimizationWorker(QThread):
                 view2_loss=self._view2_loss,
                 sds_prompt=self._sds_prompt,
                 device=self._device,
+                hanging_plane_size=self._hanging_plane_size,
             )
 
             last_metrics: dict[str, float] = {}

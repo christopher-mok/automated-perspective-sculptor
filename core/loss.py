@@ -99,6 +99,22 @@ def silhouette_loss(
     return ((alpha - mask.clamp(0.0, 1.0)) ** 2).mean()
 
 
+def negative_space_loss(
+    rendered: torch.Tensor,
+    target_mask: torch.Tensor,
+) -> torch.Tensor:
+    """Penalize rendered coverage in target background/transparent regions."""
+    if rendered.shape[-1] >= 4:
+        alpha = rendered[..., 3:4]
+    else:
+        alpha = rendered[..., :3].amax(dim=-1, keepdim=True)
+    mask = _match_size(alpha, target_mask.to(alpha.device))
+    if mask.dim() == 2:
+        mask = mask.unsqueeze(-1)
+    background = (1.0 - mask.clamp(0.0, 1.0)).clamp(0.0, 1.0)
+    return (alpha.square() * background).sum() / (background.sum() + 1e-8)
+
+
 def masked_rgb_loss(
     rendered: torch.Tensor,
     target: torch.Tensor,

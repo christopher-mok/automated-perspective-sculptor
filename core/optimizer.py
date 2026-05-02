@@ -26,7 +26,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from core.loss import masked_rgb_loss, sds_loss, silhouette_loss
+from core.loss import masked_rgb_loss, negative_space_loss, sds_loss, silhouette_loss
 from core.renderer import DiffRenderer
 
 if TYPE_CHECKING:
@@ -92,23 +92,23 @@ def parse_palette(text: str | Sequence[str] | Sequence[Sequence[float]] | None) 
 
 
 def image_to_tensor(image: str | Path | np.ndarray | torch.Tensor, device: str = "cpu") -> torch.Tensor:
-    """Load/convert an image to (H, W, 3) float32 in [0, 1]."""
+    """Load/convert an image to (H, W, 3/4) float32 in [0, 1]."""
     if isinstance(image, torch.Tensor):
         t = image.detach().to(device=device, dtype=torch.float32)
         if t.max() > 1.0:
             t = t / 255.0
-        return t[..., :3].clamp(0.0, 1.0)
+        return t[..., :4].clamp(0.0, 1.0)
 
     if isinstance(image, (str, Path)):
         from PIL import Image
 
-        arr = np.array(Image.open(image).convert("RGB"))
+        arr = np.array(Image.open(image).convert("RGBA"))
     else:
         arr = np.asarray(image)
 
     if arr.ndim == 2:
         arr = np.repeat(arr[..., None], 3, axis=-1)
-    arr = arr[..., :3]
+    arr = arr[..., :4]
     t = torch.from_numpy(arr).to(device=device, dtype=torch.float32)
     if t.max() > 1.0:
         t = t / 255.0
@@ -125,7 +125,7 @@ def fit_image_to_resolution(
     target_h, target_w = resolution
     src_h, src_w = img.shape[:2]
     if src_h <= 0 or src_w <= 0:
-        return torch.zeros(target_h, target_w, 3, device=device)
+        return torch.zeros(target_h, target_w, img.shape[-1], device=device)
 
     scale = min(target_w / src_w, target_h / src_h)
     new_w = max(1, int(round(src_w * scale)))
@@ -138,7 +138,9 @@ def fit_image_to_resolution(
         img[-1, -1],
     ])
     background = corners.median(dim=0).values
-    canvas = background.view(1, 1, 3).expand(target_h, target_w, 3).clone()
+    if img.shape[-1] >= 4:
+        background = torch.zeros_like(background)
+    canvas = background.view(1, 1, -1).expand(target_h, target_w, img.shape[-1]).clone()
 
     resized = img.permute(2, 0, 1).unsqueeze(0)
     resized = F.interpolate(
@@ -175,6 +177,9 @@ def foreground_mask_from_image(
         fit_image_to_resolution(image, resolution, device)
         if resolution is not None else image_to_tensor(image, device)
     )
+    if img.shape[-1] >= 4:
+        return img[..., 3:4].clamp(0.0, 1.0)
+
     q = quantize_to_palette(img, palette)
     h, w = q.shape[:2]
     band = max(1, min(h, w) // 20)
@@ -361,6 +366,38 @@ def patch_camera_bounds_loss(
     return torch.stack(losses).mean()
 
 
+def constrain_patch_to_square_xz_bounds(
+    patch: "Patch",
+    half_size: float,
+    n_per_segment: int = 20,
+) -> None:
+    """Shift a patch so its sampled outline stays inside square XZ bounds."""
+    half = max(float(half_size), 1e-4)
+    pts = patch.sample_spline_world(n_per_segment)
+
+    min_x = float(pts[:, 0].min().detach().cpu())
+    max_x = float(pts[:, 0].max().detach().cpu())
+    min_z = float(pts[:, 2].min().detach().cpu())
+    max_z = float(pts[:, 2].max().detach().cpu())
+
+    shift_x = 0.0
+    if min_x < -half:
+        shift_x = -half - min_x
+    if max_x + shift_x > half:
+        shift_x += half - (max_x + shift_x)
+
+    shift_z = 0.0
+    if min_z < -half:
+        shift_z = -half - min_z
+    if max_z + shift_z > half:
+        shift_z += half - (max_z + shift_z)
+
+    patch.center.data[0].add_(shift_x)
+    patch.center.data[2].add_(shift_z)
+    patch.center.data[0].clamp_(-half, half)
+    patch.center.data[2].clamp_(-half, half)
+
+
 def _wrap_theta_half_turn(theta: float) -> float:
     """Wrap a Y rotation to [-pi/2, pi/2), treating theta and theta+pi as equivalent."""
     return ((theta + np.pi * 0.5) % np.pi) - np.pi * 0.5
@@ -434,6 +471,7 @@ class SceneOptimizer:
         device: str = "cpu",
         n_per_segment: int = 20,
         silhouette_weight: float = 2.0,
+        negative_space_weight: float = 4.0,
         #overlap_weight: float = 0.05,
         overlap_weight: float = 0.7,
         overlap_margin: float = 0.005,
@@ -444,6 +482,7 @@ class SceneOptimizer:
         theta_camera_margin: float = THETA_CAMERA_MARGIN,
         camera_bounds_weight: float = 0.3,
         camera_bounds_xy_limit: float = 0.98,
+        hanging_plane_size: float = 5.0,
     ) -> None:
         if not patches:
             raise ValueError("SceneOptimizer requires at least one patch.")
@@ -457,6 +496,7 @@ class SceneOptimizer:
         self.sds_prompt = sds_prompt
         self.sds_pipe = sds_pipe
         self.silhouette_weight = silhouette_weight
+        self.negative_space_weight = negative_space_weight
         self.overlap_weight = overlap_weight
         self.overlap_margin = overlap_margin
         self.visibility_weight = visibility_weight
@@ -465,6 +505,7 @@ class SceneOptimizer:
         self.theta_camera_angles = _camera_yaw_angles((camera1, camera2))
         self.camera_bounds_weight = camera_bounds_weight
         self.camera_bounds_xy_limit = camera_bounds_xy_limit
+        self.hanging_plane_size = hanging_plane_size
 
         self.palette = parse_palette(palette).to(device)
         target1_fit = fit_image_to_resolution(target1, self.resolution, device)
@@ -515,9 +556,17 @@ class SceneOptimizer:
             "view2_loss": float(components["loss2"].detach().cpu()),
             "view1_silhouette": float(components["loss1_silhouette"].detach().cpu()),
             "view2_silhouette": float(components["loss2_silhouette"].detach().cpu()),
+            "view1_negative_space": float(components["loss1_negative_space"].detach().cpu()),
+            "view2_negative_space": float(components["loss2_negative_space"].detach().cpu()),
             "overlap": float(components["overlap"].detach().cpu()),
             "visibility": float(components["visibility"].detach().cpu()),
             "camera_bounds": float(components["camera_bounds"].detach().cpu()),
+            "negative_space_weighted": float(
+                (
+                    self.negative_space_weight
+                    * (components["loss1_negative_space"] + components["loss2_negative_space"])
+                ).detach().cpu()
+            ),
             "overlap_weighted": float((self.overlap_weight * components["overlap"]).detach().cpu()),
             "visibility_weighted": float((self.visibility_weight * components["visibility"]).detach().cpu()),
             "camera_bounds_weighted": float((self.camera_bounds_weight * components["camera_bounds"]).detach().cpu()),
@@ -531,18 +580,32 @@ class SceneOptimizer:
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         loss1_rgb = masked_rgb_loss(render1, self.target1, self.target1_mask)
         loss1_silhouette = silhouette_loss(render1, self.target1_mask)
-        loss1 = loss1_rgb + self.silhouette_weight * loss1_silhouette
+        loss1_negative_space = negative_space_loss(render1, self.target1_mask)
+        loss1 = (
+            loss1_rgb
+            + self.silhouette_weight * loss1_silhouette
+            + self.negative_space_weight * loss1_negative_space
+        )
         loss2 = torch.zeros((), device=loss1.device)
         loss2_silhouette = torch.zeros((), device=loss1.device)
+        loss2_negative_space = torch.zeros((), device=loss1.device)
         if self.view2_loss.startswith("sds"):
             if not self.sds_prompt:
                 raise ValueError("SDS optimization requires a text prompt.")
             loss2 = sds_loss(render2[..., :3], self.sds_prompt, self.sds_pipe)
+            if self.target2_mask is not None:
+                loss2_negative_space = negative_space_loss(render2, self.target2_mask)
+                loss2 = loss2 + self.negative_space_weight * loss2_negative_space
         elif self.target2 is not None:
             assert self.target2_mask is not None
             loss2_rgb = masked_rgb_loss(render2, self.target2, self.target2_mask)
             loss2_silhouette = silhouette_loss(render2, self.target2_mask)
-            loss2 = loss2_rgb + self.silhouette_weight * loss2_silhouette
+            loss2_negative_space = negative_space_loss(render2, self.target2_mask)
+            loss2 = (
+                loss2_rgb
+                + self.silhouette_weight * loss2_silhouette
+                + self.negative_space_weight * loss2_negative_space
+            )
 
         if patches:
             overlap = patch_overlap_loss(patches, self.overlap_margin)
@@ -572,6 +635,8 @@ class SceneOptimizer:
             "loss2": loss2,
             "loss1_silhouette": loss1_silhouette,
             "loss2_silhouette": loss2_silhouette,
+            "loss1_negative_space": loss1_negative_space,
+            "loss2_negative_space": loss2_negative_space,
             "overlap": overlap,
             "visibility": visibility,
             "camera_bounds": camera_bounds,
@@ -579,6 +644,7 @@ class SceneOptimizer:
 
     def _post_step_constraints(self) -> None:
         with torch.no_grad():
+            half_plane = max(float(self.hanging_plane_size) * 0.5, 1e-4)
             for patch in self.patches:
                 patch.center.data = torch.nan_to_num(patch.center.data, nan=0.0)
                 patch.theta.data = torch.nan_to_num(patch.theta.data, nan=0.0)
@@ -594,6 +660,7 @@ class SceneOptimizer:
                     cp.z.data.zero_()
                     cp.handle_scale.data = torch.nan_to_num(cp.handle_scale.data, nan=0.01).clamp(0.01, 2.0)
                     cp.handle_rotation.data = torch.nan_to_num(cp.handle_rotation.data, nan=0.0)
+                constrain_patch_to_square_xz_bounds(patch, half_plane)
 
     def mesh_snapshot(self, n_per_segment: int = 20) -> list["Mesh"]:
         return [p.to_mesh(n_per_segment=n_per_segment) for p in self.patches]
