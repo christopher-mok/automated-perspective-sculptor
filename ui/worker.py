@@ -22,8 +22,8 @@ class OptimizationWorker(QThread):
         *,
         patches: list,
         cameras: list,
-        target1: object,
-        target2: object | None,
+        target1_mask: object,
+        target2_mask: object | None,
         palette: object,
         lr: float,
         n_steps: int,
@@ -37,8 +37,8 @@ class OptimizationWorker(QThread):
         super().__init__(parent)
         self._patches = patches
         self._cameras = cameras
-        self._target1 = target1
-        self._target2 = target2
+        self._target1_mask = target1_mask
+        self._target2_mask = target2_mask
         self._palette = palette
         self._lr = lr
         self._n_steps = n_steps
@@ -67,8 +67,8 @@ class OptimizationWorker(QThread):
                 self._patches,
                 self._cameras[0],
                 self._cameras[1],
-                self._target1,
-                self._target2,
+                self._target1_mask,
+                self._target2_mask,
                 palette=self._palette,
                 lr=self._lr,
                 view2_loss=self._view2_loss,

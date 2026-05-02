@@ -10,7 +10,7 @@ At a high level:
 
 1. `main.py` starts the Qt app and opens the main window.
 2. `ui/main_window.py` builds the scene cameras, viewport, image panels, and controls.
-3. The user loads one or two target images in `ui/image_panel.py`.
+3. The user loads one or two black/white target masks in `ui/image_panel.py` (black=foreground, white=background).
 4. The user initializes patches through `core/initialization.py`.
 5. The patches are shown in the OpenGL viewport through `ui/viewport.py`.
 6. When optimization starts, `ui/worker.py` runs the optimizer in a background thread.
@@ -34,7 +34,7 @@ Entry point for the application.
 
 Top-level coordinator.
 
-- Owns the current target images.
+- Owns the current target images (for SAM initialization) and binary target masks (for optimization).
 - Owns the current patch list.
 - Owns the scene cameras.
 - Connects UI controls to initialization, optimization, pause, reset, and export behavior.
@@ -59,8 +59,8 @@ Right-side control panel.
 
 Left-side image panel.
 
-- Lets the user load target images.
-- Shows target images without stretching them.
+- Lets the user load target masks.
+- Shows the selected inputs without stretching them.
 - Shows software-rendered camera previews below the targets.
 
 ### `ui/viewport.py`
@@ -113,9 +113,7 @@ Differentiable rendering through `nvdiffrast`.
 
 Basic differentiable losses.
 
-- RGB mean squared error.
 - Silhouette loss.
-- Masked RGB loss.
 - Optional SDS-style placeholder loss when a diffusion pipeline is provided.
 
 ### `core/optimizer.py`
