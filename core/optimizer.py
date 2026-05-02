@@ -28,6 +28,7 @@ import torch.nn.functional as F
 
 from core.loss import masked_rgb_loss, sds_loss, silhouette_loss
 from core.renderer import DiffRenderer
+from optimizer.srd import StochasticRewriteDescent
 
 if TYPE_CHECKING:
     from core.patch import Patch
@@ -444,6 +445,8 @@ class SceneOptimizer:
         theta_camera_margin: float = THETA_CAMERA_MARGIN,
         camera_bounds_weight: float = 0.3,
         camera_bounds_xy_limit: float = 0.98,
+        enable_srd: bool = True,
+        lambda_count: float = 0.05,
     ) -> None:
         if not patches:
             raise ValueError("SceneOptimizer requires at least one patch.")
@@ -453,6 +456,7 @@ class SceneOptimizer:
         self.camera2 = camera2
         self.device = device
         self.resolution = resolution
+        self.render_resolutions = resolution
         self.view2_loss = view2_loss.lower()
         self.sds_prompt = sds_prompt
         self.sds_pipe = sds_pipe
@@ -465,6 +469,7 @@ class SceneOptimizer:
         self.theta_camera_angles = _camera_yaw_angles((camera1, camera2))
         self.camera_bounds_weight = camera_bounds_weight
         self.camera_bounds_xy_limit = camera_bounds_xy_limit
+        self.lambda_count = lambda_count
 
         self.palette = parse_palette(palette).to(device)
         target1_fit = fit_image_to_resolution(target1, self.resolution, device)
@@ -491,6 +496,10 @@ class SceneOptimizer:
         self.optim = torch.optim.Adam(_parameter_groups(patches), lr=lr)
         snap_patches_to_palette(self.patches, self.palette)
         self._post_step_constraints()
+        self.srd = StochasticRewriteDescent(
+            enabled=enable_srd,
+            lambda_count=lambda_count,
+        )
 
     def step(self, step_idx: int = 1, total_steps: int = 1) -> dict[str, float]:
         self.optim.zero_grad(set_to_none=True)
@@ -508,6 +517,29 @@ class SceneOptimizer:
         self.optim.zero_grad(set_to_none=True)
         self._post_step_constraints()
 
+        srd_stats = self.srd.stats
+        if self.srd.enabled:
+            with torch.no_grad():
+                current_render1, current_render2 = self.renderer.render_both(
+                    self.patches,
+                    self.camera1,
+                    self.camera2,
+                    self.render_resolutions,
+                )
+                current_loss, _ = self._loss_from_renders(
+                    current_render1,
+                    current_render2,
+                    self.patches,
+                )
+            srd_stats = self.srd.step(
+                self,
+                self.optim,
+                float(current_loss.detach().cpu()),
+                (self.camera1, self.camera2),
+                (self.target1, self.target2),
+                step_idx,
+            )
+
         loss_value = float(loss.detach().cpu())
         return {
             "loss": loss_value,
@@ -518,9 +550,16 @@ class SceneOptimizer:
             "overlap": float(components["overlap"].detach().cpu()),
             "visibility": float(components["visibility"].detach().cpu()),
             "camera_bounds": float(components["camera_bounds"].detach().cpu()),
+            "patch_count": float(components["patch_count"].detach().cpu()),
             "overlap_weighted": float((self.overlap_weight * components["overlap"]).detach().cpu()),
             "visibility_weighted": float((self.visibility_weight * components["visibility"]).detach().cpu()),
             "camera_bounds_weighted": float((self.camera_bounds_weight * components["camera_bounds"]).detach().cpu()),
+            "patch_count_weighted": float(components["count_loss"].detach().cpu()),
+            "active_patches": float(len(self.patches)),
+            "srd_added": float(srd_stats.added),
+            "srd_deleted": float(srd_stats.deleted),
+            "srd_total_added": float(srd_stats.total_added),
+            "srd_total_deleted": float(srd_stats.total_deleted),
         }
 
     def _loss_from_renders(
@@ -560,12 +599,15 @@ class SceneOptimizer:
             overlap = torch.zeros((), device=loss1.device)
             visibility = torch.zeros((), device=loss1.device)
             camera_bounds = torch.zeros((), device=loss1.device)
+        patch_count = torch.tensor(float(len(patches)), device=loss1.device, dtype=loss1.dtype)
+        count_loss = self.lambda_count * patch_count
         loss = (
             loss1
             + loss2
             + self.overlap_weight * overlap
             + self.visibility_weight * visibility
             + self.camera_bounds_weight * camera_bounds
+            + count_loss
         )
         return loss, {
             "loss1": loss1,
@@ -575,6 +617,8 @@ class SceneOptimizer:
             "overlap": overlap,
             "visibility": visibility,
             "camera_bounds": camera_bounds,
+            "patch_count": patch_count,
+            "count_loss": count_loss,
         }
 
     def _post_step_constraints(self) -> None:

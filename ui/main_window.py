@@ -235,6 +235,8 @@ class MainWindow(QMainWindow):
             palette=opt.palette,
             lr=opt.learning_rate,
             n_steps=opt.n_steps,
+            enable_srd=opt.enable_srd,
+            patch_count_penalty=opt.patch_count_penalty,
             run_until_convergence=opt.run_until_convergence,
             convergence_threshold=opt.convergence_threshold,
             view2_loss=view2_loss,
@@ -253,12 +255,12 @@ class MainWindow(QMainWindow):
         if opt.run_until_convergence:
             print(
                 f"[Optimization] started: until loss <= {opt.convergence_threshold:.3e}, "
-                f"lr={opt.learning_rate:.3e}, palette={opt.palette!r}"
+                f"lr={opt.learning_rate:.3e}, srd={opt.enable_srd}, palette={opt.palette!r}"
             )
         else:
             print(
                 f"[Optimization] started: steps={opt.n_steps}, lr={opt.learning_rate:.3e}, "
-                f"palette={opt.palette!r}"
+                f"srd={opt.enable_srd}, palette={opt.palette!r}"
             )
 
     def _on_optimization_step(self, step_idx: int, metrics: object, meshes: object) -> None:
@@ -266,6 +268,12 @@ class MainWindow(QMainWindow):
         self._image_panel.set_camera_previews(meshes, self._scene.cameras)
         if not self._optimization_run_until_convergence:
             self._controls.optimization.set_progress(step_idx)
+        if isinstance(metrics, dict):
+            self._controls.optimization.set_srd_status(
+                int(metrics.get("active_patches", len(self._patches))),
+                int(metrics.get("srd_total_added", 0)),
+                int(metrics.get("srd_total_deleted", 0)),
+            )
         if step_idx == 1 or step_idx % 10 == 0:
             loss = metrics.get("loss", 0.0) if isinstance(metrics, dict) else 0.0
             if isinstance(metrics, dict):

@@ -208,6 +208,89 @@ class Patch(nn.Module):
         """Spline points in world space. Returns (N*T, 3)."""
         return self.local_to_world(self.sample_spline_local(n_per_segment))
 
+    def compute_area(self, n_per_segment: int = 20) -> torch.Tensor:
+        """Differentiable signed-outline area magnitude in local patch space."""
+        pts = self.sample_spline_local(n_per_segment)
+        xy = pts[:, :2]
+        nxt = torch.roll(xy, shifts=-1, dims=0)
+        cross = xy[:, 0] * nxt[:, 1] - xy[:, 1] * nxt[:, 0]
+        return 0.5 * cross.sum().abs()
+
+    def split_down_middle(self, creation_step: int = 0) -> tuple["Patch", "Patch"]:
+        """Split a five-point patch into two smaller five-point child patches.
+
+        The split is built in local space, using the top-most control point and
+        the midpoint between the two lowest control points as the split line.
+        """
+        with torch.no_grad():
+            pts = torch.stack([cast(ControlPoint, cp).pos for cp in self.control_points], dim=0)
+            xy = pts[:, :2].detach().cpu().numpy()
+            top = xy[int(np.argmax(xy[:, 1]))]
+            bottom_pair = xy[np.argsort(xy[:, 1])[:2]]
+            bottom_mid = bottom_pair.mean(axis=0)
+            center_mid = 0.5 * (top + bottom_mid)
+
+            min_x = float(np.min(xy[:, 0]))
+            max_x = float(np.max(xy[:, 0]))
+            min_y = float(np.min(xy[:, 1]))
+            max_y = float(np.max(xy[:, 1]))
+            mid_x = float(bottom_mid[0])
+            width = max(max_x - min_x, 1e-3)
+            height = max(max_y - min_y, 1e-3)
+
+            left_mid_x = 0.5 * (min_x + mid_x)
+            right_mid_x = 0.5 * (max_x + mid_x)
+            upper_y = min_y + 0.72 * height
+
+            left_points = [
+                top,
+                np.array([left_mid_x, upper_y], dtype=np.float32),
+                np.array([min_x, min_y + 0.2 * height], dtype=np.float32),
+                bottom_mid,
+                center_mid,
+            ]
+            right_points = [
+                top,
+                center_mid,
+                bottom_mid,
+                np.array([max_x, min_y + 0.2 * height], dtype=np.float32),
+                np.array([right_mid_x, upper_y], dtype=np.float32),
+            ]
+
+            albedo = self.albedo.detach().cpu().numpy().tolist()
+            center = self.center.detach().cpu().numpy().tolist()
+            theta = float(self.theta.detach().cpu())
+
+        def _make_child(points: list[np.ndarray], suffix: str) -> "Patch":
+            scale = max(width, height) * 0.08
+            control_points: list[ControlPoint] = []
+            n = len(points)
+            for idx, point in enumerate(points):
+                prev_point = points[(idx - 1) % n]
+                next_point = points[(idx + 1) % n]
+                tangent = np.asarray(next_point, dtype=np.float32) - np.asarray(prev_point, dtype=np.float32)
+                angle = float(np.arctan2(tangent[1], tangent[0]))
+                control_points.append(ControlPoint(
+                    x=float(point[0]),
+                    y=float(point[1]),
+                    z=0.0,
+                    handle_scale=float(max(scale, 0.01)),
+                    handle_rotation=angle,
+                    device=str(self.center.device),
+                ))
+            child = Patch(
+                control_points=control_points,
+                center=center,
+                theta=theta,
+                albedo=albedo,
+                device=str(self.center.device),
+                label=f"{self.label}_{suffix}" if self.label else suffix,
+            )
+            child.creation_step = creation_step
+            return child
+
+        return _make_child(left_points, "split_a"), _make_child(right_points, "split_b")
+
     # ------------------------------------------------------------------
     # Mesh for homogeneous coordinate assembly (renderer)
     # ------------------------------------------------------------------
@@ -306,6 +389,7 @@ class Patch(nn.Module):
             "center": _l(self.center),
             "theta":  _f(self.theta),
             "albedo": _l(self.albedo),
+            "creation_step": int(getattr(self, "creation_step", 0)),
             "control_points": [
                 {
                     "x":               _f(cast(ControlPoint, cp).x),
@@ -329,7 +413,7 @@ class Patch(nn.Module):
             )
             for cp in d["control_points"]
         ]
-        return cls(
+        patch = cls(
             control_points=cps,
             center=d["center"],
             theta=float(d["theta"]),
@@ -337,6 +421,8 @@ class Patch(nn.Module):
             device=device,
             label=d.get("label", ""),
         )
+        patch.creation_step = int(d.get("creation_step", 0))
+        return patch
 
     def __repr__(self) -> str:
         c = self.center.detach().cpu().numpy().round(3).tolist()

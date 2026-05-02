@@ -53,6 +53,7 @@ Right-side control panel.
 - Step count, defaulting to `400`, and progress bar.
 - Convergence threshold.
 - Palette input.
+- Adaptive patches (SRD): enable checkbox, patch count penalty slider defaulting to `0.05`, and live active/added/deleted status.
 - Run, pause, and reset buttons.
 
 ### `ui/image_panel.py`
@@ -127,8 +128,19 @@ Optimization logic.
 - Creates foreground masks.
 - Builds optimizer parameter groups.
 - Computes geometric penalties.
+- Computes patch count penalty for SRD rewrite scoring.
 - Applies Adam updates.
 - Applies hard post-step constraints.
+- Calls stochastic rewrite descent when enabled.
+
+### `optimizer/srd.py`
+
+Stochastic rewrite descent for adaptive patch counts.
+
+- Samples structural rewrites such as add, delete, restore, and split.
+- Scores candidate rewrites with local optimization lookahead.
+- Applies compatible rewrites that improve the loss.
+- Tracks active, added, and deleted patch counts for the UI.
 
 ### `ui/worker.py`
 
@@ -527,6 +539,7 @@ Why it matters:
 How it works:
 
 - Creates a `SceneOptimizer`.
+- Passes the SRD enable state and patch count penalty from the controls panel.
 - In fixed-step mode, runs for the selected number of steps.
 - In convergence mode, runs until the loss reaches the threshold or the worker is stopped.
 - Emits `step_completed`, `failed`, and `optimization_finished` signals.
@@ -804,6 +817,47 @@ How it works:
 - Calls `sample_spline_local()`.
 - Passes the result through `local_to_world()`.
 
+### `Patch.compute_area(samples_per_segment)`
+
+What it does:
+
+- Computes the enclosed local spline area.
+
+Returns:
+
+- A scalar torch tensor.
+
+Why it matters:
+
+- SRD uses patch area to sample larger patches for split candidates and to identify near-zero-area patches for delete candidates.
+
+How it works:
+
+- Samples the local spline outline.
+- Applies the shoelace formula to the sampled XY points.
+- Returns the absolute area so clockwise and counter-clockwise point order both work.
+
+### `Patch.split_down_middle(creation_step)`
+
+What it does:
+
+- Creates two five-control-point child patches from one parent patch.
+
+Returns:
+
+- A tuple of `(child_a, child_b)` patches.
+
+Why it matters:
+
+- SRD can evaluate split rewrites when a target needs more local detail than one large patch can represent.
+
+How it works:
+
+- Finds the top-most control point.
+- Finds the midpoint between the two lowest control points.
+- Builds a split line between those two locations with a center control point.
+- Constructs left and right five-point child patches with inherited center, theta, color, and creation step.
+
 ### `Patch.world_vertices_homogeneous(samples_per_segment)`
 
 What it does:
@@ -919,6 +973,7 @@ How they work:
 
 - Convert tensor values to plain Python lists and floats.
 - Rebuild tensors and control points when loading.
+- Preserve `creation_step` so SRD cooldown behavior survives tentative rewrite save/restore passes.
 
 ## `scene/camera.py`
 
@@ -1538,6 +1593,7 @@ How it works:
 - Builds Adam parameter groups.
 - Snaps initial colors to the palette.
 - Applies initial post-step constraints.
+- Creates a `StochasticRewriteDescent` instance with the selected enable state and patch count penalty.
 
 ### `SceneOptimizer.step(step_idx=1, total_steps=1)`
 
@@ -1547,7 +1603,7 @@ What it does:
 
 Returns:
 
-- A metrics dictionary with values such as total loss, view losses, overlap penalty, visibility penalty, camera-bounds penalty, and weighted geometric penalty contributions.
+- A metrics dictionary with values such as total loss, view losses, overlap penalty, visibility penalty, camera-bounds penalty, patch count penalty, weighted geometric penalty contributions, and SRD add/delete totals.
 
 Why it matters:
 
@@ -1560,12 +1616,14 @@ How it works:
 - Computes RGB and silhouette losses.
 - Computes optional view 2 SDS loss or image loss.
 - Computes overlap, visibility, and camera-bounds penalties.
+- Computes `lambda_count * num_active_patches`; this is constant for Adam but matters when SRD compares structural rewrites.
 - Combines all terms into one scalar total loss.
 - Calls `backward()`.
 - Calls Adam `step()`.
 - Clears gradients.
 - Applies post-step constraints.
 - Enforces the camera-angle theta constraint during post-step constraints.
+- Calls `srd.step(...)` after the Adam step when SRD is enabled.
 
 ### `SceneOptimizer._loss_from_renders(render1, render2, patches)`
 
@@ -1843,6 +1901,18 @@ Significance:
 
 - Focuses color matching on target foreground instead of wasting loss on padded or background pixels.
 
+### Patch count penalty
+
+```text
+patch_count_loss = lambda_count * num_active_patches
+```
+
+Significance:
+
+- Adds pressure for SRD to prefer simpler structures with fewer pieces.
+- The default UI value is `0.05`.
+- This term is discrete with respect to patch structure, so Adam cannot reduce it directly; SRD uses it when accepting or rejecting add, split, restore, and delete rewrites.
+
 ### Soft overlap penalty
 
 ```text
@@ -1890,6 +1960,7 @@ total_loss =
   + overlap_weight * overlap_loss
   + visibility_weight * visibility_loss
   + camera_bounds_weight * camera_bounds_loss
+  + patch_count_loss
 ```
 
 Current important weights are set in `SceneOptimizer.__init__()`:
@@ -1901,6 +1972,7 @@ Current important weights are set in `SceneOptimizer.__init__()`:
 - `camera_bounds_xy_limit`
 - `min_projected_area`
 - `overlap_margin`
+- `lambda_count`, controlled by the SRD patch count penalty slider.
 
 The edge-on behavior is handled as a hard theta constraint, not a loss term.
 
