@@ -392,6 +392,8 @@ class Viewport(QOpenGLWidget):
         self._axis_y = _GPULines()
         self._axis_z = _GPULines()
         self._frustum_gpu: list[_GPULines] = []
+        self._dynamic_meshes: list["Mesh"] = []
+        self._static_meshes: list["Mesh"] = []
         self._mesh_gpu: dict[int, _GPUMesh] = {}   # id(Mesh) → _GPUMesh
 
         # Projection
@@ -425,18 +427,30 @@ class Viewport(QOpenGLWidget):
         Call this from the main thread whenever the patch list changes
         (after initialization or each optimization update).
         """
-        self._scene.set_meshes([p.to_mesh() for p in patches])
+        self._dynamic_meshes = [p.to_mesh() for p in patches]
+        self._sync_scene_mesh_list()
         self.update()
 
     def set_meshes(self, meshes: list["Mesh"]) -> None:
         """Replace scene meshes with worker-produced mesh snapshots."""
-        self._scene.set_meshes(meshes)
+        self._dynamic_meshes = list(meshes)
+        self._sync_scene_mesh_list()
+        self.update()
+
+    def set_static_meshes(self, meshes: list["Mesh"]) -> None:
+        """Replace persistent viewport-only meshes, such as fabrication guides."""
+        self._static_meshes = list(meshes)
+        self._sync_scene_mesh_list()
         self.update()
 
     def reset(self) -> None:
         """Clear rendered meshes and restore the default camera framing."""
-        self._scene.clear_meshes()
+        self._dynamic_meshes.clear()
+        self._sync_scene_mesh_list()
         self.frame_scene()
+
+    def _sync_scene_mesh_list(self) -> None:
+        self._scene.set_meshes([*self._dynamic_meshes, *self._static_meshes])
 
     # ------------------------------------------------------------------
     # OpenGL lifecycle

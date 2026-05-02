@@ -6,7 +6,6 @@ import math
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QGroupBox,
     QHBoxLayout,
@@ -77,6 +76,7 @@ def _labeled_slider(
 
 class PatchesSection(QGroupBox):
     initialize_requested = pyqtSignal(int, str)   # n_patches, init_mode
+    hanging_plane_size_changed = pyqtSignal(float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Patches", parent)
@@ -107,6 +107,19 @@ class PatchesSection(QGroupBox):
         self._init_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
         self._init_combo.currentTextChanged.connect(self._on_mode_changed)
         layout.addLayout(_row("Initialization", self._init_combo))
+
+        # Hanging plane footprint
+        self._plane_slider, self._plane_lbl = _labeled_slider(10, 100, 50, "{:.1f}")
+        self._plane_lbl.setText(f"{self.hanging_plane_size:.1f}")
+        self._plane_slider.valueChanged.connect(self._on_plane_size_changed)
+        plane_row = QHBoxLayout()
+        plane_lbl = QLabel("Hanging plane size")
+        plane_lbl.setStyleSheet(_LABEL_STYLE)
+        plane_row.addWidget(plane_lbl)
+        plane_row.addStretch()
+        plane_row.addWidget(self._plane_lbl)
+        layout.addLayout(plane_row)
+        layout.addWidget(self._plane_slider)
 
         # SAM model selector (only visible in SAM mode)
         self._sam_model_lbl = QLabel("SAM model")
@@ -171,6 +184,27 @@ class PatchesSection(QGroupBox):
         return self._sam_model_combo.currentText()
 
     @property
+    def hanging_plane_size(self) -> float:
+        """Returns the square hanging plane side length in scene units."""
+        return self._plane_slider.value() / 10.0
+
+    def _on_plane_size_changed(self, value: int) -> None:
+        size = value / 10.0
+        self._plane_lbl.setText(f"{size:.1f}")
+        self.hanging_plane_size_changed.emit(size)
+
+    def set_running(self, running: bool) -> None:
+        for widget in (
+            self._n_slider,
+            self._init_combo,
+            self._sam_model_combo,
+            self._device_combo,
+            self._plane_slider,
+            self._init_btn,
+        ):
+            widget.setEnabled(not running)
+
+    @property
     def device(self) -> str:
         """Returns the torch device string for the selected option."""
         _map = {
@@ -218,6 +252,7 @@ def _threshold_to_slider(threshold: float) -> int:
 class OptimizationSection(QGroupBox):
     run_requested = pyqtSignal()
     pause_toggled = pyqtSignal(bool)
+    palette_changed = pyqtSignal()
     reset_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -326,37 +361,18 @@ class OptimizationSection(QGroupBox):
         layout.addLayout(self._threshold_row)
         layout.addWidget(self._threshold_slider)
 
-        # Adaptive patches / SRD
-        self._srd_group = QGroupBox("Adaptive patches (SRD)")
-        self._srd_group.setStyleSheet(_SECTION_STYLE)
-        srd_layout = QVBoxLayout(self._srd_group)
-        srd_layout.setContentsMargins(10, 14, 10, 10)
-        srd_layout.setSpacing(8)
-
-        self._srd_enabled = QCheckBox("Enable SRD")
-        self._srd_enabled.setChecked(True)
-        self._srd_enabled.setStyleSheet("color: #aaa; font-size: 12px;")
-        self._srd_enabled.toggled.connect(self._on_srd_toggled)
-        srd_layout.addWidget(self._srd_enabled)
-
-        self._count_penalty_slider, self._count_penalty_lbl = _labeled_slider(0, 100, 5, "{}")
-        self._count_penalty_lbl.setText("0.05")
-        self._count_penalty_slider.valueChanged.connect(
-            lambda v: self._count_penalty_lbl.setText(f"{v / 100.0:.2f}")
+        # Discrete colour palette
+        palette_lbl = QLabel("Palette")
+        palette_lbl.setStyleSheet(_LABEL_STYLE)
+        self._palette_input = QLineEdit()
+        self._palette_input.setText("#FFFFFF")
+        self._palette_input.setPlaceholderText("#111111, #f4d35e, #2f6690")
+        self._palette_input.setStyleSheet(
+            "color: #ddd; background: #2a2a2a; border: 1px solid #444; border-radius: 3px; padding: 4px;"
         )
-        count_row = QHBoxLayout()
-        count_lbl = QLabel("Patch count penalty")
-        count_lbl.setStyleSheet(_LABEL_STYLE)
-        count_row.addWidget(count_lbl)
-        count_row.addStretch()
-        count_row.addWidget(self._count_penalty_lbl)
-        srd_layout.addLayout(count_row)
-        srd_layout.addWidget(self._count_penalty_slider)
-
-        self._srd_status_lbl = QLabel("Active patches: 0 | Added: 0 | Deleted: 0")
-        self._srd_status_lbl.setStyleSheet("color: #888; font-size: 11px;")
-        srd_layout.addWidget(self._srd_status_lbl)
-        layout.addWidget(self._srd_group)
+        self._palette_input.editingFinished.connect(self.palette_changed.emit)
+        layout.addWidget(palette_lbl)
+        layout.addWidget(self._palette_input)
 
         # Run button
         self._run_btn = QPushButton("Run optimization")
@@ -430,9 +446,6 @@ class OptimizationSection(QGroupBox):
         self._pause_btn.setText("Resume" if paused else "Pause")
         self.pause_toggled.emit(paused)
 
-    def _on_srd_toggled(self, enabled: bool) -> None:
-        self._count_penalty_slider.setEnabled(enabled)
-
     @property
     def learning_rate(self) -> float:
         return _slider_to_lr(self._lr_slider.value())
@@ -450,20 +463,16 @@ class OptimizationSection(QGroupBox):
         return _slider_to_threshold(self._threshold_slider.value())
 
     @property
+    def palette(self) -> str:
+        return self._palette_input.text()
+
+    @property
     def loss_type(self) -> str:
         return self._loss_combo.currentText()
 
     @property
     def sds_prompt(self) -> str:
         return self._sds_input.text()
-
-    @property
-    def enable_srd(self) -> bool:
-        return self._srd_enabled.isChecked()
-
-    @property
-    def patch_count_penalty(self) -> float:
-        return self._count_penalty_slider.value() / 100.0
 
     def set_running(self, running: bool) -> None:
         self._run_btn.setEnabled(not running)
@@ -479,12 +488,9 @@ class OptimizationSection(QGroupBox):
             self._run_mode_combo,
             self._steps_slider,
             self._threshold_slider,
-            self._srd_enabled,
-            self._count_penalty_slider,
+            self._palette_input,
         ):
             widget.setEnabled(not running)
-        if not running:
-            self._on_srd_toggled(self._srd_enabled.isChecked())
         self._sds_input.setEnabled((not running) and "SDS" in self._loss_combo.currentText())
 
     def reset_controls(self) -> None:
@@ -495,17 +501,11 @@ class OptimizationSection(QGroupBox):
         self._progress_bar.setRange(0, self._steps_slider.value())
         self._progress_bar.setValue(0)
         self._progress_bar.setFormat(f"0 / {self._steps_slider.value()}")
-        self.set_srd_status(0, 0, 0)
 
     def set_progress(self, step: int) -> None:
         total = self._steps_slider.value()
         self._progress_bar.setValue(min(step, total))
         self._progress_bar.setFormat(f"{min(step, total)} / {total}")
-
-    def set_srd_status(self, active: int, added: int, deleted: int) -> None:
-        self._srd_status_lbl.setText(
-            f"Active patches: {active} | Added: {added} | Deleted: {deleted}"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +514,8 @@ class OptimizationSection(QGroupBox):
 
 
 class ExportSection(QGroupBox):
+    export_requested = pyqtSignal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Export", parent)
         self.setStyleSheet(_SECTION_STYLE)
@@ -522,16 +524,17 @@ class ExportSection(QGroupBox):
         layout.setContentsMargins(10, 14, 10, 10)
         layout.setSpacing(8)
 
-        self._export_btn = QPushButton("Export SVG for laser cutter")
+        self._export_btn = QPushButton("Export pieces JSON")
         self._export_btn.setEnabled(False)
         self._export_btn.setStyleSheet(
             "QPushButton { background: #3a3a3a; color: #777; border-radius: 4px; padding: 6px; }"
             "QPushButton:enabled { background: #5a3e7a; color: #fff; }"
             "QPushButton:enabled:hover { background: #6f4e96; }"
         )
+        self._export_btn.clicked.connect(self.export_requested.emit)
         layout.addWidget(self._export_btn)
 
-        note = QLabel("Run optimization first to enable export.")
+        note = QLabel("Run optimization first to export to exports/pieces.json.")
         note.setStyleSheet("color: #666; font-size: 11px; font-style: italic;")
         note.setWordWrap(True)
         layout.addWidget(note)

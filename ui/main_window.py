@@ -7,10 +7,15 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QMainWindow, QMessageBox, QSplitter
 
 from scene.camera import Camera
-from scene.scene import Scene
+from scene.scene import Mesh, Scene
 from ui.controls_panel import ControlsPanel
 from ui.image_panel import ImagePanel
 from ui.viewport import Viewport
+
+_TARGET_TRANSPARENT_BORDER_FRACTION = 0.10
+_ORIGINAL_BOUNDS_SIZE = 5.0
+_HANGING_PLANE_Y = (_ORIGINAL_BOUNDS_SIZE * 0.5) + 1.0
+_HANGING_PLANE_FRAME_THICKNESS = 0.035
 
 
 def _make_scene_cameras() -> list[Camera]:
@@ -43,6 +48,50 @@ def _make_scene_cameras() -> list[Camera]:
         label="View 2",
     )
     return [cam1, cam2]
+
+
+def _load_target_image_with_border(path: str) -> np.ndarray:
+    """Load an image as RGBA and add a transparent border around it."""
+    from PIL import Image, ImageOps
+
+    image = Image.open(path).convert("RGBA")
+    border = max(1, int(round(max(image.size) * _TARGET_TRANSPARENT_BORDER_FRACTION)))
+    return np.array(ImageOps.expand(image, border=border, fill=(0, 0, 0, 0)))
+
+
+def _make_hanging_plane_mesh(size: float) -> Mesh:
+    """Create a thin square frame marking the hanging plane footprint."""
+    half = max(size * 0.5, _HANGING_PLANE_FRAME_THICKNESS)
+    t = min(_HANGING_PLANE_FRAME_THICKNESS, half)
+    y = _HANGING_PLANE_Y
+
+    bars = [
+        (-half, half, -half, -half + t),
+        (-half, half, half - t, half),
+        (-half, -half + t, -half, half),
+        (half - t, half, -half, half),
+    ]
+    vertices: list[list[float]] = []
+    faces: list[list[int]] = []
+    for x0, x1, z0, z1 in bars:
+        start = len(vertices)
+        vertices.extend([
+            [x0, y, z0],
+            [x1, y, z0],
+            [x1, y, z1],
+            [x0, y, z1],
+        ])
+        faces.extend([
+            [start, start + 1, start + 2],
+            [start, start + 2, start + 3],
+        ])
+
+    return Mesh(
+        np.array(vertices, dtype=np.float32),
+        np.array(faces, dtype=np.int32),
+        color=(0.55, 0.62, 0.68),
+        label="hanging_plane",
+    )
 
 
 class MainWindow(QMainWindow):
@@ -122,7 +171,7 @@ class MainWindow(QMainWindow):
 
         # Patch state
         self._patches: list = []
-        self._target1_img: np.ndarray | None = None  # uint8 (H,W,3) for SAM
+        self._target1_img: np.ndarray | None = None  # uint8 (H,W,4), padded RGBA
         self._target2_img: np.ndarray | None = None
         self._worker = None
         self._optimization_run_until_convergence = False
@@ -152,20 +201,24 @@ class MainWindow(QMainWindow):
         self._controls.patches.initialize_requested.connect(self._on_initialize)
         self._controls.optimization.run_requested.connect(self._on_run_optimization)
         self._controls.optimization.pause_toggled.connect(self._on_pause_optimization)
+        self._controls.optimization.palette_changed.connect(self._on_palette_changed)
         self._controls.optimization.reset_requested.connect(self._on_reset)
+        self._controls.export.export_requested.connect(self._on_export_json)
+        self._controls.patches.hanging_plane_size_changed.connect(
+            self._on_hanging_plane_size_changed
+        )
+        self._update_hanging_plane_mesh()
 
     # ------------------------------------------------------------------
     # Signal handlers
     # ------------------------------------------------------------------
 
     def _on_view1_loaded(self, path: str) -> None:
-        from PIL import Image
-        self._target1_img = np.array(Image.open(path).convert("RGB"))
+        self._target1_img = _load_target_image_with_border(path)
         print(f"[View 1 target] loaded: {path}")
 
     def _on_view2_loaded(self, path: str) -> None:
-        from PIL import Image
-        self._target2_img = np.array(Image.open(path).convert("RGB"))
+        self._target2_img = _load_target_image_with_border(path)
         print(f"[View 2 target] loaded: {path}")
 
     def _on_initialize(self, n_patches: int, mode: str) -> None:
@@ -182,6 +235,10 @@ class MainWindow(QMainWindow):
                 cameras=self._scene.cameras,
                 device=device,
             )
+            from core.optimizer import snap_patches_to_palette
+
+            snap_patches_to_palette(self._patches, self._controls.optimization.palette)
+            self._constrain_patches_to_hanging_plane()
         except (ValueError, FileNotFoundError, ImportError) as exc:
             QMessageBox.warning(self, "Initialize patches", str(exc))
             return
@@ -212,6 +269,14 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Run optimization", "Enter an SDS prompt first.")
             return
 
+        try:
+            from core.optimizer import snap_patches_to_palette
+
+            snap_patches_to_palette(self._patches, opt.palette)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Run optimization", str(exc))
+            return
+        self._constrain_patches_to_hanging_plane()
         self._viewport.set_patches(self._patches)
         self._update_camera_previews_from_patches()
 
@@ -221,15 +286,15 @@ class MainWindow(QMainWindow):
             cameras=self._scene.cameras,
             target1=self._target1_img,
             target2=self._target2_img,
+            palette=opt.palette,
             lr=opt.learning_rate,
             n_steps=opt.n_steps,
-            enable_srd=opt.enable_srd,
-            patch_count_penalty=opt.patch_count_penalty,
             run_until_convergence=opt.run_until_convergence,
             convergence_threshold=opt.convergence_threshold,
             view2_loss=view2_loss,
             sds_prompt=opt.sds_prompt,
             device=self._controls.patches.device,
+            hanging_plane_size=self._controls.patches.hanging_plane_size,
             parent=self,
         )
         self._worker.step_completed.connect(self._on_optimization_step)
@@ -237,18 +302,19 @@ class MainWindow(QMainWindow):
         self._worker.optimization_finished.connect(self._on_optimization_finished)
 
         self._controls.optimization.set_running(True)
+        self._controls.patches.set_running(True)
         self._controls.optimization.reset_progress()
         self._controls.export.set_enabled(False)
         self._worker.start()
         if opt.run_until_convergence:
             print(
                 f"[Optimization] started: until loss <= {opt.convergence_threshold:.3e}, "
-                f"lr={opt.learning_rate:.3e}, srd={opt.enable_srd}"
+                f"lr={opt.learning_rate:.3e}, palette={opt.palette!r}, targets=mask"
             )
         else:
             print(
                 f"[Optimization] started: steps={opt.n_steps}, lr={opt.learning_rate:.3e}, "
-                f"srd={opt.enable_srd}"
+                f"palette={opt.palette!r}, targets=mask"
             )
 
     def _on_optimization_step(self, step_idx: int, metrics: object, meshes: object) -> None:
@@ -256,21 +322,13 @@ class MainWindow(QMainWindow):
         self._image_panel.set_camera_previews(meshes, self._scene.cameras)
         if not self._optimization_run_until_convergence:
             self._controls.optimization.set_progress(step_idx)
-        if isinstance(metrics, dict):
-            self._controls.optimization.set_srd_status(
-                int(metrics.get("active_patches", len(self._patches))),
-                int(metrics.get("srd_total_added", 0)),
-                int(metrics.get("srd_total_deleted", 0)),
-            )
         if step_idx == 1 or step_idx % 10 == 0:
             loss = metrics.get("loss", 0.0) if isinstance(metrics, dict) else 0.0
             if isinstance(metrics, dict):
                 print(
                     f"[Optimization] step={step_idx}, loss={loss:.6f}, "
-                    f"terms(avg): view1_rgb={metrics.get('view1_rgb', 0.0):.6f}, "
-                    f"view2_rgb={metrics.get('view2_rgb', 0.0):.6f}, "
-                    f"view1_total={metrics.get('view1_total', 0.0):.6f}, "
-                    f"view2_total={metrics.get('view2_total', 0.0):.6f}, "
+                    f"terms(avg): view1={metrics.get('view1_mse', 0.0):.6f}, "
+                    f"view2={metrics.get('view2_loss', 0.0):.6f}, "
                     f"view1_sil={metrics.get('view1_silhouette', 0.0):.6f}, "
                     f"view2_sil={metrics.get('view2_silhouette', 0.0):.6f}, "
                     f"view1_neg={metrics.get('view1_negative_space', 0.0):.6f}, "
@@ -292,6 +350,27 @@ class MainWindow(QMainWindow):
         self._worker.set_paused(paused)
         print("[Optimization] paused" if paused else "[Optimization] resumed")
 
+    def _on_palette_changed(self) -> None:
+        if not self._patches:
+            return
+        try:
+            from core.optimizer import snap_patches_to_palette
+
+            snap_patches_to_palette(self._patches, self._controls.optimization.palette)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Palette", str(exc))
+            return
+        self._viewport.set_patches(self._patches)
+        self._update_camera_previews_from_patches()
+
+    def _on_hanging_plane_size_changed(self, size: float) -> None:
+        self._update_hanging_plane_mesh()
+        self._constrain_patches_to_hanging_plane()
+        if self._patches:
+            self._viewport.set_patches(self._patches)
+            self._update_camera_previews_from_patches()
+        print(f"[Hanging plane] size={size:.1f}, y={_HANGING_PLANE_Y:.1f}")
+
     def _on_reset(self) -> None:
         if self._worker is not None and self._worker.isRunning():
             self._reset_after_worker_stops = True
@@ -300,6 +379,27 @@ class MainWindow(QMainWindow):
             return
 
         self._reset_state()
+
+    def _on_export_json(self) -> None:
+        if not self._patches:
+            QMessageBox.warning(self, "Export", "No patches to export.")
+            return
+
+        try:
+            from core.export import export_patches_to_json
+
+            output_path = export_patches_to_json(self._patches)
+        except Exception as exc:
+            QMessageBox.warning(self, "Export failed", str(exc))
+            print(f"[Export] failed: {exc}")
+            return
+
+        QMessageBox.information(
+            self,
+            "Export complete",
+            f"Saved piece data to {output_path}",
+        )
+        print(f"[Export] wrote JSON to {output_path}")
 
     def _reset_state(self) -> None:
         self._worker = None
@@ -310,7 +410,9 @@ class MainWindow(QMainWindow):
         self._target2_img = None
         self._image_panel.reset()
         self._viewport.reset()
+        self._update_hanging_plane_mesh()
         self._controls.optimization.reset_controls()
+        self._controls.patches.set_running(False)
         self._controls.export.set_enabled(False)
         print("[Reset] cleared targets, patches, optimization state, and viewport")
 
@@ -318,11 +420,28 @@ class MainWindow(QMainWindow):
         meshes = [patch.to_mesh() for patch in self._patches]
         self._image_panel.set_camera_previews(meshes, self._scene.cameras)
 
+    def _update_hanging_plane_mesh(self) -> None:
+        self._viewport.set_static_meshes([
+            _make_hanging_plane_mesh(self._controls.patches.hanging_plane_size)
+        ])
+
+    def _constrain_patches_to_hanging_plane(self) -> None:
+        if not self._patches:
+            return
+        import torch
+        from core.optimizer import constrain_patch_to_square_xz_bounds
+
+        half = max(self._controls.patches.hanging_plane_size * 0.5, 1e-4)
+        with torch.no_grad():
+            for patch in self._patches:
+                constrain_patch_to_square_xz_bounds(patch, half)
+
     def _on_optimization_failed(self, message: str) -> None:
         if self._reset_after_worker_stops:
             self._reset_state()
             return
         self._controls.optimization.set_running(False)
+        self._controls.patches.set_running(False)
         QMessageBox.warning(self, "Optimization failed", message)
         print(f"[Optimization] failed: {message}")
 
@@ -331,6 +450,7 @@ class MainWindow(QMainWindow):
             self._reset_state()
             return
         self._controls.optimization.set_running(False)
+        self._controls.patches.set_running(False)
         self._controls.export.set_enabled(True)
         loss = metrics.get("loss", None) if isinstance(metrics, dict) else None
         if loss is None:

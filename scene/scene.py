@@ -29,7 +29,7 @@ class Mesh:
         self,
         vertices: np.ndarray,
         faces: np.ndarray,
-        color: tuple[float, float, float] = (0.6, 0.8, 1.0),
+        color: tuple[float, float, float] = (1.0, 1.0, 1.0),
         transform: np.ndarray | None = None,
         label: str = "",
     ) -> None:

@@ -24,15 +24,15 @@ class OptimizationWorker(QThread):
         cameras: list,
         target1: object,
         target2: object | None,
+        palette: object,
         lr: float,
         n_steps: int,
-        enable_srd: bool,
-        patch_count_penalty: float,
         run_until_convergence: bool,
         convergence_threshold: float,
         view2_loss: str,
         sds_prompt: str,
         device: str,
+        hanging_plane_size: float,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -40,15 +40,15 @@ class OptimizationWorker(QThread):
         self._cameras = cameras
         self._target1 = target1
         self._target2 = target2
+        self._palette = palette
         self._lr = lr
         self._n_steps = n_steps
-        self._enable_srd = enable_srd
-        self._patch_count_penalty = patch_count_penalty
         self._run_until_convergence = run_until_convergence
         self._convergence_threshold = convergence_threshold
         self._view2_loss = view2_loss
         self._sds_prompt = sds_prompt
         self._device = device
+        self._hanging_plane_size = hanging_plane_size
         self._stop_requested = False
         self._pause_requested = False
 
@@ -71,12 +71,12 @@ class OptimizationWorker(QThread):
                 self._cameras[1],
                 self._target1,
                 self._target2,
+                palette=self._palette,
                 lr=self._lr,
-                enable_srd=self._enable_srd,
-                lambda_count=self._patch_count_penalty,
                 view2_loss=self._view2_loss,
                 sds_prompt=self._sds_prompt,
                 device=self._device,
+                hanging_plane_size=self._hanging_plane_size,
             )
 
             last_metrics: dict[str, float] = {}

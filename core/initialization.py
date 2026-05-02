@@ -1,13 +1,13 @@
 """Patch initialization strategies.
 
-Each function returns a list of Patch objects positioned in the XZ plane
-(y=0) ready to be passed to SceneOptimizer.
+Each function returns a list of Patch objects ready to be passed to
+SceneOptimizer.
 
 Strategies
 ----------
-init_experimental : Randomize patch centers in a 5×5×5 box with camera-aware theta.
-init_sam          : Use Meta's Segment Anything Model to seed patch positions from
-                    a reference image (requires the ``segment-anything`` package).
+init_experimental : Patches scattered within a 3D viewport-grid box.
+init_sam    : Use Meta's Segment Anything Model to seed patch positions from
+              a reference image (requires the ``segment-anything`` package).
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def _make_patch(
         center: [x, y, z] world-space centre of the patch.
         theta:  Y-axis rotation in radians.
         radius: Radius of the initial circle in local units.
-        albedo: RGB colour in [0, 1].  Defaults to neutral grey.
+        albedo: RGB colour in [0, 1].  Defaults to white.
         device: PyTorch device string.
         label:  Human-readable name for the patch.
     """
@@ -211,7 +211,7 @@ def init_sam(
     the segment's mean colour.
 
     Args:
-        image:       (H, W, 3) uint8 RGB numpy array.
+        image:       (H, W, 3/4) uint8 RGB/RGBA numpy array.
         n_patches:   Desired total number of patches.
         bounds:      World-space XZ extent.
         radius:      Base spline radius (scaled per segment).
@@ -253,11 +253,12 @@ def init_sam(
         stability_score_thresh=0.95,
         min_mask_region_area=200,
     )
-    masks = generator.generate(image)
+    image_rgb = image[..., :3]
+    masks = generator.generate(image_rgb)
     masks = sorted(masks, key=lambda m: m["area"], reverse=True)[:n_patches]
 
     x_min, x_max, z_min, z_max = bounds
-    H, W = image.shape[:2]
+    H, W = image_rgb.shape[:2]
 
     patches: list[Patch] = []
     for i, mask_data in enumerate(masks):
@@ -273,7 +274,7 @@ def init_sam(
         patch_radius = float(np.clip(radius * footprint * 6.0, radius * 0.4, radius * 3.0))
 
         seg: np.ndarray = mask_data["segmentation"]
-        mean_rgb = [1.0, 1.0, 1.0]
+        mean_rgb = (image_rgb[seg].mean(axis=0) / 255.0).tolist() if seg.any() else [1.0, 1.0, 1.0]
 
         patches.append(_make_patch(
             center=[wx, y, wz],
@@ -284,7 +285,7 @@ def init_sam(
             label=f"patch_{i:04d}",
         ))
 
-    # Pad with experimental patches if SAM found fewer than requested
+    # Pad with experimental patches if SAM found fewer than requested.
     if len(patches) < n_patches:
         extra = init_experimental(
             n_patches - len(patches),
@@ -328,8 +329,8 @@ def initialize_patches(
         device:          PyTorch device string.
         reference_image: Required for SAM mode.
         sam_variant:     SAM model label.
-        cameras:         Scene cameras used for theta sampling in Experimental mode.
-        seed:            RNG seed.
+        cameras:         Scene cameras used by Experimental mode.
+        seed:            RNG seed for Experimental mode.
     """
     if mode == "Experimental":
         return init_experimental(n_patches, cameras, radius, device, seed=seed)
