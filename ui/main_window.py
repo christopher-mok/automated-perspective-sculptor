@@ -208,6 +208,7 @@ class MainWindow(QMainWindow):
             self._on_hanging_plane_size_changed
         )
         self._update_hanging_plane_mesh()
+        self._sync_export_enabled()
 
     # ------------------------------------------------------------------
     # Signal handlers
@@ -249,6 +250,7 @@ class MainWindow(QMainWindow):
 
         self._viewport.set_patches(self._patches)
         self._update_camera_previews_from_patches()
+        self._sync_export_enabled()
         print(f"[Initialize patches] {len(self._patches)} patches ({mode}, {device})")
 
     def _on_run_optimization(self) -> None:
@@ -304,7 +306,7 @@ class MainWindow(QMainWindow):
         self._controls.optimization.set_running(True)
         self._controls.patches.set_running(True)
         self._controls.optimization.reset_progress()
-        self._controls.export.set_enabled(False)
+        self._sync_export_enabled()
         self._worker.start()
         if opt.run_until_convergence:
             print(
@@ -388,7 +390,10 @@ class MainWindow(QMainWindow):
         try:
             from core.export import export_patches_to_json
 
-            output_path = export_patches_to_json(self._patches)
+            output_path = export_patches_to_json(
+                self._patches,
+                hanging_plane_size=self._controls.patches.hanging_plane_size,
+            )
         except Exception as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             print(f"[Export] failed: {exc}")
@@ -413,7 +418,7 @@ class MainWindow(QMainWindow):
         self._update_hanging_plane_mesh()
         self._controls.optimization.reset_controls()
         self._controls.patches.set_running(False)
-        self._controls.export.set_enabled(False)
+        self._sync_export_enabled()
         print("[Reset] cleared targets, patches, optimization state, and viewport")
 
     def _update_camera_previews_from_patches(self) -> None:
@@ -442,6 +447,7 @@ class MainWindow(QMainWindow):
             return
         self._controls.optimization.set_running(False)
         self._controls.patches.set_running(False)
+        self._sync_export_enabled()
         QMessageBox.warning(self, "Optimization failed", message)
         print(f"[Optimization] failed: {message}")
 
@@ -451,12 +457,15 @@ class MainWindow(QMainWindow):
             return
         self._controls.optimization.set_running(False)
         self._controls.patches.set_running(False)
-        self._controls.export.set_enabled(True)
+        self._sync_export_enabled()
         loss = metrics.get("loss", None) if isinstance(metrics, dict) else None
         if loss is None:
             print("[Optimization] finished")
         else:
             print(f"[Optimization] finished: loss={loss:.6f}")
+
+    def _sync_export_enabled(self) -> None:
+        self._controls.export.set_enabled(bool(self._patches))
 
     def closeEvent(self, event) -> None:
         if self._worker is not None and self._worker.isRunning():

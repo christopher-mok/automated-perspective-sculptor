@@ -534,7 +534,7 @@ class ExportSection(QGroupBox):
         self._export_btn.clicked.connect(self.export_requested.emit)
         layout.addWidget(self._export_btn)
 
-        note = QLabel("Run optimization first to export to exports/pieces.json.")
+        note = QLabel("Initialize patches to export to exports/pieces.json.")
         note.setStyleSheet("color: #666; font-size: 11px; font-style: italic;")
         note.setWordWrap(True)
         layout.addWidget(note)

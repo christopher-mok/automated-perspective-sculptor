@@ -69,6 +69,7 @@ def build_export_payload(
     patches: list[Patch],
     *,
     scale: float = 1.0,
+    hanging_plane_size: float | None = None,
     piece_scale: float = 1.0,
     id_prefix: str = "P",
     id_width: int = 2,
@@ -81,10 +82,13 @@ def build_export_payload(
         )
         for idx, patch in enumerate(patches, start=1)
     ]
-    return {
+    payload: dict[str, Any] = {
         "scale": float(scale),
         "pieces": pieces,
     }
+    if hanging_plane_size is not None:
+        payload["hangingPlaneSize"] = float(hanging_plane_size)
+    return payload
 
 
 def write_export_json(
@@ -102,6 +106,7 @@ def export_patches_to_json(
     patches: list[Patch],
     *,
     scale: float = 1.0,
+    hanging_plane_size: float | None = None,
     piece_scale: float = 1.0,
     id_prefix: str = "P",
     id_width: int = 2,
@@ -110,6 +115,7 @@ def export_patches_to_json(
     payload = build_export_payload(
         patches,
         scale=scale,
+        hanging_plane_size=hanging_plane_size,
         piece_scale=piece_scale,
         id_prefix=id_prefix,
         id_width=id_width,
