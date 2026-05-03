@@ -65,22 +65,24 @@ def _patch_parameters(patches: Sequence[Patch]) -> list[torch.nn.Parameter]:
     return params
 
 
-def _near_zero_patch(
+def _small_default_patch(
     position: np.ndarray,
     device: str,
     albedo: Sequence[float],
     creation_step: int,
     label: str,
 ) -> Patch:
+    """Create a small regular-pentagon patch for SRD additions."""
     control_points: list[ControlPoint] = []
-    radius = 0.001
+    radius = 0.05
+    handle_scale = radius * (4.0 / 3.0) * math.tan(math.pi / Patch.N_CONTROL_POINTS)
     for idx in range(Patch.N_CONTROL_POINTS):
         angle = 2.0 * math.pi * idx / Patch.N_CONTROL_POINTS - math.pi / 2.0
         control_points.append(ControlPoint(
             x=radius * math.cos(angle),
             y=radius * math.sin(angle),
             z=0.0,
-            handle_scale=0.01,
+            handle_scale=handle_scale,
             handle_rotation=angle + math.pi / 2.0,
             device=device,
         ))
@@ -93,6 +95,7 @@ def _near_zero_patch(
         label=label,
     )
     patch.creation_step = creation_step
+    patch.self_intersect_counter = 0
     return patch
 
 
@@ -158,6 +161,12 @@ class StochasticRewriteDescent:
         if not self.enabled or self.interval <= 0 or current_step % self.interval != 0:
             return self.stats
 
+        tiny_deletes = self._tiny_area_delete_rewrites(model)
+        if tiny_deletes:
+            self._apply_rewrites(model, optimizer, tiny_deletes, current_step)
+            self.stats.accepted += len(tiny_deletes)
+            self.stats.active = len(model.patches)
+
         mandatory_deletes = self._mandatory_delete_rewrites(model, current_step)
         if mandatory_deletes:
             self._apply_rewrites(model, optimizer, mandatory_deletes, current_step)
@@ -195,7 +204,7 @@ class StochasticRewriteDescent:
         for candidate in accepted:
             patch_ref = candidate.applied_index if candidate.applied_index is not None else candidate.patch_index
             print(f"  Accepted {candidate.label} at patch {patch_ref}, improvement={candidate.improvement:.6f}")
-        for candidate in mandatory_deletes:
+        for candidate in [*tiny_deletes, *mandatory_deletes]:
             patch_ref = candidate.applied_index if candidate.applied_index is not None else candidate.patch_index
             print(f"  Mandatory {candidate.label} at patch {patch_ref}, reason={candidate.reason}")
         print(
@@ -203,6 +212,26 @@ class StochasticRewriteDescent:
             f"total deletes: {self.stats.total_deleted}"
         )
         return self.stats
+
+    def _tiny_area_delete_rewrites(self, model) -> list[RewriteCandidate]:
+        """Delete all below-threshold pieces at the start of a rewrite step."""
+        if len(model.patches) <= 1:
+            return []
+
+        areas = [float(patch.compute_area().detach().cpu()) for patch in model.patches]
+        indices = [idx for idx, area in enumerate(areas) if area < self.min_patch_area]
+        if len(indices) >= len(model.patches):
+            keep_idx = min(range(len(areas)), key=lambda idx: areas[idx])
+            indices = [idx for idx in indices if idx != keep_idx]
+
+        return [
+            RewriteCandidate(
+                kind="delete",
+                patch_index=idx,
+                reason=f"Area {areas[idx]:.6f} below minimum {self.min_patch_area}",
+            )
+            for idx in indices
+        ]
 
     def _mandatory_delete_rewrites(self, model, current_step: int) -> list[RewriteCandidate]:
         """Find patches that must be deleted before stochastic SRD scoring."""
@@ -258,10 +287,7 @@ class StochasticRewriteDescent:
                 ),
                 [patch],
             )
-        return (
-            float(components["camera_bounds"].detach().cpu()) > self.rule_violation_tol
-            or float(components["visibility"].detach().cpu()) > self.rule_violation_tol
-        )
+        return float(components["camera_bounds"].detach().cpu()) > self.rule_violation_tol
 
     def _patch_contributes_to_either_image(self, model, patch_index: int) -> bool:
         patch = model.patches[patch_index]
@@ -539,7 +565,7 @@ class StochasticRewriteDescent:
         if len(model.patches) >= self.max_patches:
             return
         palette_color = [1.0, 1.0, 1.0]
-        patch = _near_zero_patch(
+        patch = _small_default_patch(
             rewrite.position,
             model.device,
             palette_color,
@@ -568,7 +594,10 @@ class StochasticRewriteDescent:
         patch_states: Sequence[dict],
         optimizer_state: dict,
     ) -> None:
-        model.patches = [Patch.from_dict(copy.deepcopy(state), device=model.device) for state in patch_states]
+        model.patches[:] = [
+            Patch.from_dict(copy.deepcopy(state), device=model.device)
+            for state in patch_states
+        ]
         model.optim = self._rebuild_optimizer(model, optimizer)
         try:
             model.optim.load_state_dict(optimizer_state)

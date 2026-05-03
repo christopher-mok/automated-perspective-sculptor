@@ -31,7 +31,16 @@ if TYPE_CHECKING:
 _DEFAULT_BOUNDS: tuple[float, float, float, float] = (-2.0, 2.0, -2.0, 2.0)
 _DEFAULT_RADIUS: float = 0.18   # spline radius in local patch units
 _DEFAULT_Y:      float = 0.0
-_EXPERIMENTAL_BOX_SIZE: float = 5.0
+_EXPERIMENTAL_BOX_SIZE: float = 3.0
+_EXPERIMENTAL_HALF_EXTENT: float = _EXPERIMENTAL_BOX_SIZE * 0.5
+_EXPERIMENTAL_MIN: np.ndarray = np.array(
+    [-_EXPERIMENTAL_HALF_EXTENT, -_EXPERIMENTAL_HALF_EXTENT, -_EXPERIMENTAL_HALF_EXTENT],
+    dtype=np.float32,
+)
+_EXPERIMENTAL_MAX: np.ndarray = np.array(
+    [_EXPERIMENTAL_HALF_EXTENT, _EXPERIMENTAL_HALF_EXTENT, _EXPERIMENTAL_HALF_EXTENT],
+    dtype=np.float32,
+)
 _THETA_CAMERA_MARGIN: float = math.radians(15.0)
 
 
@@ -148,18 +157,16 @@ def init_experimental(
     device: str = "cpu",
     seed: int | None = None,
 ) -> list[Patch]:
-    """Randomize patch centers within a 5x5x5 viewport-grid box."""
+    """Randomize patch centers within a 4x4x4 viewport-grid box."""
     rng = np.random.default_rng(seed)
-    half = _EXPERIMENTAL_BOX_SIZE * 0.5
-    sample_min = np.array([-half, -half, -half], dtype=np.float32)
-    sample_max = np.array([half, half, half], dtype=np.float32)
-    extents = sample_max - sample_min
+    extents = _EXPERIMENTAL_MAX - _EXPERIMENTAL_MIN
     patch_radius = max(radius, float(np.cbrt(np.prod(extents) / max(n_patches, 1)) * 0.16))
     camera_angles = _camera_yaw_angles(cameras)
 
     patches: list[Patch] = []
     for i in range(n_patches):
-        point = rng.uniform(sample_min, sample_max).astype(np.float32)
+        point = rng.uniform(_EXPERIMENTAL_MIN, _EXPERIMENTAL_MAX).astype(np.float32)
+        point = np.clip(point, _EXPERIMENTAL_MIN, _EXPERIMENTAL_MAX)
         patches.append(_make_patch(
             center=point.tolist(),
             theta=_sample_allowed_theta(rng, camera_angles),

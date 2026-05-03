@@ -6,6 +6,7 @@ import math
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QGroupBox,
     QHBoxLayout,
@@ -509,6 +510,96 @@ class OptimizationSection(QGroupBox):
 
 
 # ---------------------------------------------------------------------------
+# Stochastic Rewrite Descent section
+# ---------------------------------------------------------------------------
+
+
+class SRDSection(QGroupBox):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("Stochastic Rewrite Descent", parent)
+        self.setStyleSheet(_SECTION_STYLE)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 14, 10, 10)
+        layout.setSpacing(8)
+
+        self._enabled = QCheckBox("Enable SRD")
+        self._enabled.setChecked(True)
+        self._enabled.setStyleSheet(_LABEL_STYLE)
+        layout.addWidget(self._enabled)
+
+        self._propose_slider, self._propose_lbl = _labeled_slider(20, 200, 50, "{}")
+        self._propose_slider.valueChanged.connect(lambda v: self._propose_lbl.setText(str(v)))
+        layout.addLayout(self._value_row("Propose every N steps", self._propose_lbl))
+        layout.addWidget(self._propose_slider)
+
+        self._proposal_steps_slider, self._proposal_steps_lbl = _labeled_slider(1, 20, 5, "{}")
+        self._proposal_steps_slider.valueChanged.connect(lambda v: self._proposal_steps_lbl.setText(str(v)))
+        layout.addLayout(self._value_row("Proposal steps", self._proposal_steps_lbl))
+        layout.addWidget(self._proposal_steps_slider)
+
+        self._candidates_slider, self._candidates_lbl = _labeled_slider(16, 128, 64, "{}")
+        self._candidates_slider.valueChanged.connect(lambda v: self._candidates_lbl.setText(str(v)))
+        layout.addLayout(self._value_row("Num candidates K", self._candidates_lbl))
+        layout.addWidget(self._candidates_slider)
+
+        self._max_patches_slider, self._max_patches_lbl = _labeled_slider(10, 500, 200, "{}")
+        self._max_patches_slider.valueChanged.connect(lambda v: self._max_patches_lbl.setText(str(v)))
+        layout.addLayout(self._value_row("Max patches", self._max_patches_lbl))
+        layout.addWidget(self._max_patches_slider)
+
+        self._min_patches_slider, self._min_patches_lbl = _labeled_slider(1, 20, 4, "{}")
+        self._min_patches_slider.valueChanged.connect(lambda v: self._min_patches_lbl.setText(str(v)))
+        layout.addLayout(self._value_row("Min patches", self._min_patches_lbl))
+        layout.addWidget(self._min_patches_slider)
+
+        self._stats_lbl = QLabel("Patches: 0 | Added: 0 | Deleted: 0 | Mandatory deleted: 0")
+        self._stats_lbl.setStyleSheet("color: #888; font-size: 11px;")
+        self._stats_lbl.setWordWrap(True)
+        layout.addWidget(self._stats_lbl)
+
+    def _value_row(self, label_text: str, value_lbl: QLabel) -> QHBoxLayout:
+        row = QHBoxLayout()
+        lbl = QLabel(label_text)
+        lbl.setStyleSheet(_LABEL_STYLE)
+        row.addWidget(lbl)
+        row.addStretch()
+        row.addWidget(value_lbl)
+        return row
+
+    @property
+    def config(self) -> dict[str, object]:
+        return {
+            "enabled": self._enabled.isChecked(),
+            "interval": self._propose_slider.value(),
+            "rewrite_eval_steps": self._proposal_steps_slider.value(),
+            "candidate_count": self._candidates_slider.value(),
+            "max_patches": self._max_patches_slider.value(),
+            "min_patches": self._min_patches_slider.value(),
+        }
+
+    def set_stats(self, metrics: dict) -> None:
+        patches = int(metrics.get("srd_active_patches", metrics.get("patches", 0)))
+        added = int(metrics.get("srd_total_adds", 0))
+        deleted = int(metrics.get("srd_total_deletes", 0))
+        mandatory = int(metrics.get("srd_total_mandatory_deletes", 0))
+        self._stats_lbl.setText(
+            f"Patches: {patches} | Added: {added} | Deleted: {deleted} | Mandatory deleted: {mandatory}"
+        )
+
+    def set_running(self, running: bool) -> None:
+        for widget in (
+            self._enabled,
+            self._propose_slider,
+            self._proposal_steps_slider,
+            self._candidates_slider,
+            self._max_patches_slider,
+            self._min_patches_slider,
+        ):
+            widget.setEnabled(not running)
+
+
+# ---------------------------------------------------------------------------
 # Export section
 # ---------------------------------------------------------------------------
 
@@ -582,6 +673,9 @@ class ControlsPanel(QWidget):
 
         self.optimization = OptimizationSection(container)
         layout.addWidget(self.optimization)
+
+        self.srd = SRDSection(container)
+        layout.addWidget(self.srd)
 
         self.export = ExportSection(container)
         layout.addWidget(self.export)
