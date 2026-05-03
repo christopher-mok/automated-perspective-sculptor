@@ -97,7 +97,7 @@ def _xy_dict(point: torch.Tensor | list[float] | tuple[float, float]) -> dict[st
 
 
 def _fmt(value: float) -> str:
-    return f"{float(value):.4f}".rstrip("0").rstrip(".")
+    return f"{float(value):.6f}".rstrip("0").rstrip(".")
 
 
 def _piece_label(index: int) -> str:
@@ -432,27 +432,78 @@ def export_grid_svg(
     return _write_text(Path(output_path), _svg_document(size_in, size_in, body))
 
 
-def _piece_outline_xy(patch: Patch, n_per_segment: int = 32) -> torch.Tensor:
-    return patch.sample_spline_local(n_per_segment).detach()[:, :2].cpu()
+def _piece_dict_sample_outline(piece: dict[str, Any], n_per_segment: int = 64) -> torch.Tensor:
+    cps = piece["controlPoints"]
+    t_values = torch.linspace(0.0, 1.0, n_per_segment + 1)[:-1]
+    samples: list[torch.Tensor] = []
+    for idx, cp0 in enumerate(cps):
+        cp1 = cps[(idx + 1) % len(cps)]
+        p0 = torch.tensor([float(cp0["x"]), float(cp0["y"])], dtype=torch.float32)
+        p1 = p0 + torch.tensor(
+            [float(cp0["handleOut"]["x"]), float(cp0["handleOut"]["y"])],
+            dtype=torch.float32,
+        )
+        p3 = torch.tensor([float(cp1["x"]), float(cp1["y"])], dtype=torch.float32)
+        p2 = p3 + torch.tensor(
+            [float(cp1["handleIn"]["x"]), float(cp1["handleIn"]["y"])],
+            dtype=torch.float32,
+        )
+        t = t_values.unsqueeze(1)
+        samples.append(
+            (1 - t) ** 3 * p0
+            + 3 * (1 - t) ** 2 * t * p1
+            + 3 * (1 - t) * t ** 2 * p2
+            + t ** 3 * p3
+        )
+    return torch.cat(samples, dim=0)
 
 
-def _piece_svg_points(
-    xy: torch.Tensor,
+def _piece_svg_point(
+    point: torch.Tensor,
     min_xy: torch.Tensor,
     max_y: float,
     offset_x: float,
     offset_y: float,
-) -> list[tuple[float, float]]:
-    points: list[tuple[float, float]] = []
-    for point in xy:
-        x_in = offset_x + (float(point[0]) - float(min_xy[0])) * SCENE_UNIT_TO_INCH
-        y_in = offset_y + (max_y - float(point[1])) * SCENE_UNIT_TO_INCH
-        points.append((x_in, y_in))
-    return points
+) -> tuple[float, float]:
+    x_in = offset_x + (float(point[0]) - float(min_xy[0])) * SCENE_UNIT_TO_INCH
+    y_in = offset_y + (max_y - float(point[1])) * SCENE_UNIT_TO_INCH
+    return x_in, y_in
 
 
-def _svg_polyline_points(points: list[tuple[float, float]]) -> str:
-    return " ".join(f"{_fmt(x)},{_fmt(y)}" for x, y in points)
+def _piece_dict_svg_path_data(
+    piece: dict[str, Any],
+    min_xy: torch.Tensor,
+    max_y: float,
+    offset_x: float,
+    offset_y: float,
+) -> str:
+    commands: list[str] = []
+    cps = piece["controlPoints"]
+    first = torch.tensor([float(cps[0]["x"]), float(cps[0]["y"])], dtype=torch.float32)
+    x0, y0 = _piece_svg_point(first, min_xy, max_y, offset_x, offset_y)
+    commands.append(f"M {_fmt(x0)} {_fmt(y0)}")
+
+    for idx, cp0 in enumerate(cps):
+        cp1 = cps[(idx + 1) % len(cps)]
+        p0 = torch.tensor([float(cp0["x"]), float(cp0["y"])], dtype=torch.float32)
+        p1 = p0 + torch.tensor(
+            [float(cp0["handleOut"]["x"]), float(cp0["handleOut"]["y"])],
+            dtype=torch.float32,
+        )
+        p3 = torch.tensor([float(cp1["x"]), float(cp1["y"])], dtype=torch.float32)
+        p2 = p3 + torch.tensor(
+            [float(cp1["handleIn"]["x"]), float(cp1["handleIn"]["y"])],
+            dtype=torch.float32,
+        )
+        x1, y1 = _piece_svg_point(p1, min_xy, max_y, offset_x, offset_y)
+        x2, y2 = _piece_svg_point(p2, min_xy, max_y, offset_x, offset_y)
+        x3, y3 = _piece_svg_point(p3, min_xy, max_y, offset_x, offset_y)
+        commands.append(
+            f"C {_fmt(x1)} {_fmt(y1)} {_fmt(x2)} {_fmt(y2)} {_fmt(x3)} {_fmt(y3)}"
+        )
+
+    commands.append("Z")
+    return " ".join(commands)
 
 
 def export_pieces_svg(
@@ -468,7 +519,9 @@ def export_pieces_svg(
     piece_infos: list[dict[str, Any]] = []
     max_piece_width = 0.0
     for idx, patch in enumerate(patches, start=1):
-        xy = _piece_outline_xy(patch)
+        label = _piece_label(idx)
+        piece = patch_to_piece_dict(patch, label)
+        xy = _piece_dict_sample_outline(piece, n_per_segment=64)
         min_xy = xy.min(dim=0).values
         max_xy = xy.max(dim=0).values
         width = max(float(max_xy[0] - min_xy[0]) * SCENE_UNIT_TO_INCH, SVG_HOLE_RADIUS_IN * 4.0)
@@ -476,8 +529,9 @@ def export_pieces_svg(
         max_piece_width = max(max_piece_width, width)
         piece_infos.append({
             "index": idx,
-            "label": _piece_label(idx),
+            "label": label,
             "patch": patch,
+            "piece": piece,
             "xy": xy,
             "min_xy": min_xy,
             "max_xy": max_xy,
@@ -504,25 +558,22 @@ def export_pieces_svg(
 
     body: list[str] = []
     for info in piece_infos:
-        patch = info["patch"]
+        piece = info["piece"]
         label = info["label"]
         min_xy = info["min_xy"]
         max_xy = info["max_xy"]
         offset_x = float(info["offset_x"])
         offset_y = float(info["offset_y"])
-        points = _piece_svg_points(
-            info["xy"],
-            min_xy,
-            float(max_xy[1]),
-            offset_x,
-            offset_y,
-        )
-        connections = _connections_by_id(patch)
+        connections = {
+            str(connection["id"]): connection
+            for connection in piece.get("stringConnections", [])
+        }
         center_x = offset_x + info["width"] * 0.5
         center_y = offset_y + info["height"] * 0.5
         body.append(f'<g id="{escape(label)}">')
         body.append(
-            f'<polygon points="{_svg_polyline_points(points)}" fill="none" '
+            f'<path d="{_piece_dict_svg_path_data(piece, min_xy, float(max_xy[1]), offset_x, offset_y)}" '
+            f'fill="none" '
             f'stroke="{SVG_RED}" stroke-width="{_fmt(SVG_STROKE_IN)}"/>'
         )
         body.append(
