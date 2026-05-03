@@ -8,14 +8,16 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QProgressBar,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -600,6 +602,235 @@ class SRDSection(QGroupBox):
 
 
 # ---------------------------------------------------------------------------
+# Edit section
+# ---------------------------------------------------------------------------
+
+
+class EditSection(QGroupBox):
+    edit_mode_toggled = pyqtSignal(bool)
+    piece_selected = pyqtSignal(int)
+    nudge_requested = pyqtSignal(float, float, float)
+    rotate_requested = pyqtSignal(float)
+    delete_requested = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("Edit", parent)
+        self.setStyleSheet(_SECTION_STYLE)
+
+        self._running = False
+        self._has_pieces = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 14, 10, 10)
+        layout.setSpacing(8)
+
+        self._edit_btn = QPushButton("Enter edit mode")
+        self._edit_btn.setCheckable(True)
+        self._edit_btn.setStyleSheet(
+            "QPushButton { background: #3a3a3a; color: #ddd; border-radius: 4px; padding: 6px; }"
+            "QPushButton:checked { background: #2a6496; color: #fff; }"
+            "QPushButton:hover:!checked { background: #4a4a4a; }"
+        )
+        self._edit_btn.toggled.connect(self._on_edit_toggled)
+        layout.addWidget(self._edit_btn)
+
+        piece_lbl = QLabel("Piece selection")
+        piece_lbl.setStyleSheet(_LABEL_STYLE)
+        layout.addWidget(piece_lbl)
+
+        self._piece_list = QListWidget()
+        self._piece_list.setStyleSheet(
+            "QListWidget { background: #232324; color: #ddd; border: 1px solid #444; border-radius: 3px; }"
+            "QListWidget::item { padding: 4px 6px; }"
+            "QListWidget::item:selected { background: #2a6496; color: #fff; }"
+        )
+        self._piece_list.setMinimumHeight(110)
+        self._piece_list.itemSelectionChanged.connect(self._on_piece_changed)
+        layout.addWidget(self._piece_list)
+
+        self._move_slider, self._move_lbl = _labeled_slider(1, 20, 5, "{:.2f}")
+        self._move_lbl.setText(f"{self.move_step:.2f}")
+        self._move_slider.valueChanged.connect(self._on_move_step_changed)
+        move_row = QHBoxLayout()
+        move_lbl = QLabel("Move step")
+        move_lbl.setStyleSheet(_LABEL_STYLE)
+        move_row.addWidget(move_lbl)
+        move_row.addStretch()
+        move_row.addWidget(self._move_lbl)
+        layout.addLayout(move_row)
+        layout.addWidget(self._move_slider)
+
+        self._rotate_slider, self._rotate_lbl = _labeled_slider(1, 30, 5, "{}°")
+        self._rotate_lbl.setText(f"{self.rotate_step_degrees}°")
+        self._rotate_slider.valueChanged.connect(self._on_rotate_step_changed)
+        rotate_row = QHBoxLayout()
+        rotate_lbl = QLabel("Rotate step")
+        rotate_lbl.setStyleSheet(_LABEL_STYLE)
+        rotate_row.addWidget(rotate_lbl)
+        rotate_row.addStretch()
+        rotate_row.addWidget(self._rotate_lbl)
+        layout.addLayout(rotate_row)
+        layout.addWidget(self._rotate_slider)
+
+        move_grid = QGridLayout()
+        move_grid.setHorizontalSpacing(6)
+        move_grid.setVerticalSpacing(6)
+        self._btn_x_neg = self._make_action_button("X-", lambda: self._emit_nudge(-self.move_step, 0.0, 0.0))
+        self._btn_x_pos = self._make_action_button("X+", lambda: self._emit_nudge(self.move_step, 0.0, 0.0))
+        self._btn_y_neg = self._make_action_button("Y-", lambda: self._emit_nudge(0.0, -self.move_step, 0.0))
+        self._btn_y_pos = self._make_action_button("Y+", lambda: self._emit_nudge(0.0, self.move_step, 0.0))
+        self._btn_z_neg = self._make_action_button("Z-", lambda: self._emit_nudge(0.0, 0.0, -self.move_step))
+        self._btn_z_pos = self._make_action_button("Z+", lambda: self._emit_nudge(0.0, 0.0, self.move_step))
+        move_grid.addWidget(self._btn_x_neg, 0, 0)
+        move_grid.addWidget(self._btn_x_pos, 0, 1)
+        move_grid.addWidget(self._btn_y_neg, 1, 0)
+        move_grid.addWidget(self._btn_y_pos, 1, 1)
+        move_grid.addWidget(self._btn_z_neg, 2, 0)
+        move_grid.addWidget(self._btn_z_pos, 2, 1)
+        layout.addLayout(move_grid)
+
+        rotate_row = QHBoxLayout()
+        self._btn_rot_neg = self._make_action_button("Rotate -", lambda: self.rotate_requested.emit(-self.rotate_step_degrees))
+        self._btn_rot_pos = self._make_action_button("Rotate +", lambda: self.rotate_requested.emit(self.rotate_step_degrees))
+        rotate_row.addWidget(self._btn_rot_neg)
+        rotate_row.addWidget(self._btn_rot_pos)
+        layout.addLayout(rotate_row)
+
+        self._delete_btn = QPushButton("Delete selected piece")
+        self._delete_btn.setStyleSheet(
+            "QPushButton { background: #5a2d2d; color: #fff; border-radius: 4px; padding: 6px; }"
+            "QPushButton:hover { background: #713838; }"
+            "QPushButton:pressed { background: #462323; }"
+        )
+        self._delete_btn.clicked.connect(self.delete_requested.emit)
+        layout.addWidget(self._delete_btn)
+
+        hint = QLabel("Use edit mode after initialization/import/optimization to nudge, rotate, or delete pieces.")
+        hint.setStyleSheet("color: #777; font-size: 11px;")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        self.set_piece_labels([])
+
+    def _make_action_button(self, label: str, on_click) -> QPushButton:
+        btn = QPushButton(label)
+        btn.setStyleSheet(
+            "QPushButton { background: #2f4d5f; color: #fff; border-radius: 4px; padding: 5px; }"
+            "QPushButton:hover { background: #3b6178; }"
+            "QPushButton:pressed { background: #254052; }"
+        )
+        btn.clicked.connect(on_click)
+        return btn
+
+    def _on_edit_toggled(self, enabled: bool) -> None:
+        self._edit_btn.setText("Exit edit mode" if enabled else "Enter edit mode")
+        self._refresh_enabled_state()
+        self.edit_mode_toggled.emit(enabled)
+
+    def _on_piece_changed(self) -> None:
+        self._refresh_enabled_state()
+        self.piece_selected.emit(self.selected_piece_index)
+
+    def _on_move_step_changed(self, _value: int) -> None:
+        self._move_lbl.setText(f"{self.move_step:.2f}")
+
+    def _on_rotate_step_changed(self, _value: int) -> None:
+        self._rotate_lbl.setText(f"{self.rotate_step_degrees}°")
+
+    def _emit_nudge(self, dx: float, dy: float, dz: float) -> None:
+        self.nudge_requested.emit(dx, dy, dz)
+
+    @property
+    def move_step(self) -> float:
+        return self._move_slider.value() / 100.0
+
+    @property
+    def rotate_step_degrees(self) -> float:
+        return float(self._rotate_slider.value())
+
+    @property
+    def selected_piece_index(self) -> int:
+        current = self._piece_list.currentItem()
+        if current is None:
+            return -1
+        data = current.data(Qt.ItemDataRole.UserRole)
+        if isinstance(data, int):
+            return data
+        return -1
+
+    @property
+    def edit_mode_enabled(self) -> bool:
+        return self._edit_btn.isChecked()
+
+    def set_piece_labels(self, labels: list[str]) -> None:
+        previous = self.selected_piece_index
+        self._piece_list.blockSignals(True)
+        self._piece_list.clear()
+        if labels:
+            for index, label in enumerate(labels):
+                item = QListWidgetItem(label)
+                item.setData(Qt.ItemDataRole.UserRole, index)
+                self._piece_list.addItem(item)
+            self._piece_list.setCurrentRow(previous if 0 <= previous < len(labels) else 0)
+        else:
+            item = QListWidgetItem("No pieces available")
+            item.setData(Qt.ItemDataRole.UserRole, -1)
+            self._piece_list.addItem(item)
+            self._piece_list.setCurrentRow(0)
+        self._piece_list.blockSignals(False)
+        self._has_pieces = bool(labels)
+        if not self._has_pieces:
+            self.set_edit_mode(False)
+        self._refresh_enabled_state()
+        self.piece_selected.emit(self.selected_piece_index)
+
+    def set_selected_piece(self, index: int) -> None:
+        if not self._has_pieces:
+            return
+        if index < 0 or index >= self._piece_list.count():
+            return
+        current = self.selected_piece_index
+        if current == index:
+            return
+        self._piece_list.setCurrentRow(index)
+
+    def set_running(self, running: bool) -> None:
+        self._running = running
+        if running:
+            self.set_edit_mode(False)
+        self._refresh_enabled_state()
+
+    def set_edit_mode(self, enabled: bool) -> None:
+        checked = bool(enabled) and self._has_pieces and not self._running
+        self._edit_btn.blockSignals(True)
+        self._edit_btn.setChecked(checked)
+        self._edit_btn.setText("Exit edit mode" if checked else "Enter edit mode")
+        self._edit_btn.blockSignals(False)
+        self._refresh_enabled_state()
+
+    def _refresh_enabled_state(self) -> None:
+        can_toggle = self._has_pieces and not self._running
+        self._edit_btn.setEnabled(can_toggle)
+        self._piece_list.setEnabled(can_toggle)
+
+        active = can_toggle and self._edit_btn.isChecked() and self.selected_piece_index >= 0
+        for widget in (
+            self._move_slider,
+            self._rotate_slider,
+            self._btn_x_neg,
+            self._btn_x_pos,
+            self._btn_y_neg,
+            self._btn_y_pos,
+            self._btn_z_neg,
+            self._btn_z_pos,
+            self._btn_rot_neg,
+            self._btn_rot_pos,
+            self._delete_btn,
+        ):
+            widget.setEnabled(active)
+
+
+# ---------------------------------------------------------------------------
 # Export section
 # ---------------------------------------------------------------------------
 
@@ -698,6 +929,9 @@ class ControlsPanel(QWidget):
 
         self.srd = SRDSection(container)
         layout.addWidget(self.srd)
+
+        self.edit = EditSection(container)
+        layout.addWidget(self.edit)
 
         self.export = ExportSection(container)
         layout.addWidget(self.export)

@@ -223,6 +223,12 @@ class MainWindow(QMainWindow):
         self._controls.optimization.pause_toggled.connect(self._on_pause_optimization)
         self._controls.optimization.palette_changed.connect(self._on_palette_changed)
         self._controls.optimization.reset_requested.connect(self._on_reset)
+        self._viewport.piece_clicked.connect(self._on_viewport_piece_clicked)
+        self._controls.edit.edit_mode_toggled.connect(self._on_edit_mode_toggled)
+        self._controls.edit.piece_selected.connect(self._on_edit_piece_selected)
+        self._controls.edit.nudge_requested.connect(self._on_edit_nudge)
+        self._controls.edit.rotate_requested.connect(self._on_edit_rotate)
+        self._controls.edit.delete_requested.connect(self._on_edit_delete)
         self._controls.export.export_requested.connect(self._on_export_json)
         self._controls.export.import_requested.connect(self._on_import_json)
         self._controls.export.strings_requested.connect(self._on_add_strings)
@@ -395,6 +401,86 @@ class MainWindow(QMainWindow):
             return
         self._viewport.set_patches(self._patches)
         self._update_camera_previews_from_patches()
+
+    def _on_edit_mode_toggled(self, enabled: bool) -> None:
+        optimizing = self._worker is not None and self._worker.isRunning()
+        if enabled and (optimizing or not self._patches):
+            self._controls.edit.set_edit_mode(False)
+            return
+        self._viewport.set_edit_selection(
+            enabled,
+            self._controls.edit.selected_piece_index,
+        )
+        print("[Edit] mode enabled" if enabled else "[Edit] mode disabled")
+
+    def _on_edit_piece_selected(self, index: int) -> None:
+        self._viewport.set_edit_selection(
+            self._controls.edit.edit_mode_enabled,
+            index,
+        )
+
+    def _on_viewport_piece_clicked(self, index: int) -> None:
+        if not self._controls.edit.edit_mode_enabled:
+            return
+        self._controls.edit.set_selected_piece(index)
+        print(f"[Edit] selected patch={index + 1} from viewport")
+
+    def _on_edit_nudge(self, dx: float, dy: float, dz: float) -> None:
+        patch = self._selected_patch_for_edit()
+        if patch is None:
+            return
+        import torch
+
+        with torch.no_grad():
+            delta = torch.tensor(
+                [dx, dy, dz],
+                dtype=patch.center.dtype,
+                device=patch.center.device,
+            )
+            patch.center.add_(delta)
+        self._constrain_patches_to_hanging_plane()
+        self._clear_string_connections()
+        self._viewport.set_patches(self._patches)
+        self._viewport.set_edit_selection(True, self._controls.edit.selected_piece_index)
+        self._update_camera_previews_from_patches()
+        print(
+            f"[Edit] nudged patch={self._controls.edit.selected_piece_index + 1}, "
+            f"delta=({dx:.3f}, {dy:.3f}, {dz:.3f})"
+        )
+
+    def _on_edit_rotate(self, delta_degrees: float) -> None:
+        patch = self._selected_patch_for_edit()
+        if patch is None:
+            return
+        import torch
+
+        with torch.no_grad():
+            patch.theta.add_(patch.theta.new_tensor(np.deg2rad(delta_degrees)))
+        self._clear_string_connections()
+        self._viewport.set_patches(self._patches)
+        self._viewport.set_edit_selection(True, self._controls.edit.selected_piece_index)
+        self._update_camera_previews_from_patches()
+        print(
+            f"[Edit] rotated patch={self._controls.edit.selected_piece_index + 1}, "
+            f"delta={delta_degrees:.1f}°"
+        )
+
+    def _on_edit_delete(self) -> None:
+        if not self._controls.edit.edit_mode_enabled:
+            return
+        index = self._controls.edit.selected_piece_index
+        if index < 0 or index >= len(self._patches):
+            return
+        removed = self._patches.pop(index)
+        self._clear_string_connections()
+        self._viewport.set_patches(self._patches)
+        self._update_camera_previews_from_patches()
+        self._controls.srd.set_stats({"patches": len(self._patches)})
+        self._sync_export_enabled()
+        print(
+            f"[Edit] deleted patch={index + 1}, label={removed.label!r}; "
+            f"remaining={len(self._patches)}"
+        )
 
     def _on_hanging_plane_size_changed(self, size: float) -> None:
         self._update_hanging_plane_mesh()
@@ -625,6 +711,34 @@ class MainWindow(QMainWindow):
     def _sync_export_enabled(self) -> None:
         optimizing = self._worker is not None and self._worker.isRunning()
         self._controls.export.set_enabled(bool(self._patches) and not optimizing)
+        self._sync_edit_controls()
+
+    def _sync_edit_controls(self) -> None:
+        optimizing = self._worker is not None and self._worker.isRunning()
+        labels = self._build_piece_labels()
+        self._controls.edit.set_running(optimizing)
+        self._controls.edit.set_piece_labels(labels)
+        self._viewport.set_edit_selection(
+            self._controls.edit.edit_mode_enabled,
+            self._controls.edit.selected_piece_index,
+        )
+
+    def _build_piece_labels(self) -> list[str]:
+        labels: list[str] = []
+        for idx, patch in enumerate(self._patches, start=1):
+            suffix = f" ({patch.label})" if getattr(patch, "label", "").strip() else ""
+            labels.append(f"Piece {idx}{suffix}")
+        return labels
+
+    def _selected_patch_for_edit(self):
+        if not self._controls.edit.edit_mode_enabled:
+            return None
+        if self._worker is not None and self._worker.isRunning():
+            return None
+        index = self._controls.edit.selected_piece_index
+        if index < 0 or index >= len(self._patches):
+            return None
+        return self._patches[index]
 
     def closeEvent(self, event) -> None:
         if self._worker is not None and self._worker.isRunning():

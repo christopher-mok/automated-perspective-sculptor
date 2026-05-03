@@ -18,7 +18,7 @@ import ctypes
 from typing import TYPE_CHECKING
 
 import numpy as np
-from PyQt6.QtCore import QPoint, Qt, QTimer
+from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QMouseEvent, QWheelEvent
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from OpenGL.GL import (
@@ -264,6 +264,35 @@ def _perspective(fov_deg: float, aspect: float, near: float, far: float) -> np.n
     )
 
 
+def _ray_triangle_hit_distance(
+    ray_origin: np.ndarray,
+    ray_dir: np.ndarray,
+    v0: np.ndarray,
+    v1: np.ndarray,
+    v2: np.ndarray,
+    eps: float = 1e-8,
+) -> float | None:
+    edge1 = v1 - v0
+    edge2 = v2 - v0
+    pvec = np.cross(ray_dir, edge2)
+    det = float(np.dot(edge1, pvec))
+    if abs(det) < eps:
+        return None
+    inv_det = 1.0 / det
+    tvec = ray_origin - v0
+    u = float(np.dot(tvec, pvec) * inv_det)
+    if u < 0.0 or u > 1.0:
+        return None
+    qvec = np.cross(tvec, edge1)
+    v = float(np.dot(ray_dir, qvec) * inv_det)
+    if v < 0.0 or (u + v) > 1.0:
+        return None
+    t = float(np.dot(edge2, qvec) * inv_det)
+    if t <= eps:
+        return None
+    return t
+
+
 # ---------------------------------------------------------------------------
 # Orbit camera state
 # ---------------------------------------------------------------------------
@@ -364,6 +393,7 @@ def _make_axis_lines(length: float = 2.5) -> dict[str, np.ndarray]:
 
 class Viewport(QOpenGLWidget):
     """OpenGL 3.3 Core viewport with orbit camera and scene rendering."""
+    piece_clicked = pyqtSignal(int)
 
     def __init__(self, scene: "Scene", parent=None) -> None:
         super().__init__(parent)
@@ -374,6 +404,7 @@ class Viewport(QOpenGLWidget):
 
         # Mouse tracking state
         self._last_pos = QPoint()
+        self._left_press_pos = QPoint()
         self._left_down = False
         self._middle_down = False
 
@@ -397,6 +428,8 @@ class Viewport(QOpenGLWidget):
         self._static_meshes: list["Mesh"] = []
         self._string_vertices = np.empty((0, 3), dtype=np.float32)
         self._mesh_gpu: dict[int, _GPUMesh] = {}   # id(Mesh) → _GPUMesh
+        self._edit_mode = False
+        self._selected_patch_index = -1
 
         # Projection
         self._fov = 45.0
@@ -454,6 +487,64 @@ class Viewport(QOpenGLWidget):
             self._string_lines.upload(data)
             self.doneCurrent()
         self.update()
+
+    def set_edit_selection(self, enabled: bool, selected_index: int) -> None:
+        self._edit_mode = bool(enabled)
+        if 0 <= selected_index < len(self._dynamic_meshes):
+            self._selected_patch_index = selected_index
+        else:
+            self._selected_patch_index = -1
+        self.update()
+
+    def _pick_patch_at_screen(self, x: int, y: int) -> int | None:
+        if not self._dynamic_meshes:
+            return None
+
+        width = max(self.width(), 1)
+        height = max(self.height(), 1)
+        aspect = width / height
+        proj = _perspective(self._fov, aspect, self._near, self._far).astype(np.float64)
+        view = self._orbit.view_matrix().astype(np.float64)
+        inv_vp = np.linalg.inv(proj @ view)
+
+        ndc_x = (2.0 * x / width) - 1.0
+        ndc_y = 1.0 - (2.0 * y / height)
+        near_clip = np.array([ndc_x, ndc_y, -1.0, 1.0], dtype=np.float64)
+        far_clip = np.array([ndc_x, ndc_y, 1.0, 1.0], dtype=np.float64)
+
+        near_world = inv_vp @ near_clip
+        far_world = inv_vp @ far_clip
+        if abs(near_world[3]) < 1e-9 or abs(far_world[3]) < 1e-9:
+            return None
+        near_world /= near_world[3]
+        far_world /= far_world[3]
+
+        ray_origin = near_world[:3]
+        ray_dir = far_world[:3] - ray_origin
+        length = float(np.linalg.norm(ray_dir))
+        if length <= 1e-9:
+            return None
+        ray_dir /= length
+
+        best_index: int | None = None
+        best_t = float("inf")
+        for patch_index, mesh in enumerate(self._dynamic_meshes):
+            if not mesh.visible:
+                continue
+            vertices = np.asarray(mesh.vertices, dtype=np.float64)
+            faces = np.asarray(mesh.faces, dtype=np.int32)
+            for tri in faces:
+                t = _ray_triangle_hit_distance(
+                    ray_origin,
+                    ray_dir,
+                    vertices[int(tri[0])],
+                    vertices[int(tri[1])],
+                    vertices[int(tri[2])],
+                )
+                if t is not None and t < best_t:
+                    best_t = t
+                    best_index = patch_index
+        return best_index
 
     def reset(self) -> None:
         """Clear rendered meshes and restore the default camera framing."""
@@ -551,7 +642,14 @@ class Viewport(QOpenGLWidget):
                 continue
             mvp = vp @ mesh_obj.transform
             glUniformMatrix4fv(mesh_mvp_loc, 1, GL_TRUE, mvp)
-            glUniform3f(mesh_color_loc, *mesh_obj.color)
+            color = mesh_obj.color
+            if (
+                self._edit_mode
+                and 0 <= self._selected_patch_index < len(self._dynamic_meshes)
+                and mesh_obj is self._dynamic_meshes[self._selected_patch_index]
+            ):
+                color = (1.0, 0.45, 0.2)
+            glUniform3f(mesh_color_loc, *color)
             gpu_mesh.draw()
 
     # ------------------------------------------------------------------
@@ -592,6 +690,7 @@ class Viewport(QOpenGLWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         self._last_pos = event.position().toPoint()
         if event.button() == Qt.MouseButton.LeftButton:
+            self._left_press_pos = self._last_pos
             self._left_down = True
             self._momentum_timer.stop()
             self._velocity[:] = 0.0
@@ -600,7 +699,15 @@ class Viewport(QOpenGLWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
+            release_pos = event.position().toPoint()
+            click_distance = (release_pos - self._left_press_pos).manhattanLength()
             self._left_down = False
+            if self._edit_mode and click_distance <= 4:
+                hit = self._pick_patch_at_screen(release_pos.x(), release_pos.y())
+                if hit is not None:
+                    self._selected_patch_index = hit
+                    self.piece_clicked.emit(hit)
+                    self.update()
             if np.linalg.norm(self._velocity) > 0.5:
                 self._momentum_timer.start()
         elif event.button() == Qt.MouseButton.MiddleButton:
