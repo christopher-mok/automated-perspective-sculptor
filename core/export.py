@@ -170,3 +170,59 @@ def send_export_payload(
             "status": None,
             "body": str(exc.reason),
         }
+
+
+def send_export_json_file(
+    endpoint: str = "http://localhost:5173/api/import",
+    *,
+    timeout_s: float = 15.0,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """POST exports/pieces.json as application/json (curl --data-binary equivalent)."""
+    if not EXPORT_JSON_PATH.exists():
+        return {
+            "ok": False,
+            "status": None,
+            "body": f"Missing export file: {EXPORT_JSON_PATH}",
+        }
+
+    req_headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    if headers:
+        req_headers.update(headers)
+
+    body_bytes = EXPORT_JSON_PATH.read_bytes()
+
+    req = request.Request(endpoint, data=body_bytes, headers=req_headers, method="POST")
+
+    try:
+        with request.urlopen(req, timeout=timeout_s) as response:
+            response_text = response.read().decode("utf-8", errors="replace")
+            try:
+                response_body: Any = json.loads(response_text) if response_text else None
+            except json.JSONDecodeError:
+                response_body = response_text
+            return {
+                "ok": True,
+                "status": int(response.status),
+                "body": response_body,
+            }
+    except error.HTTPError as exc:
+        response_text = exc.read().decode("utf-8", errors="replace")
+        try:
+            response_body = json.loads(response_text) if response_text else None
+        except json.JSONDecodeError:
+            response_body = response_text
+        return {
+            "ok": False,
+            "status": int(exc.code),
+            "body": response_body,
+        }
+    except error.URLError as exc:
+        return {
+            "ok": False,
+            "status": None,
+            "body": str(exc.reason),
+        }

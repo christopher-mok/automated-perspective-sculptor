@@ -388,23 +388,46 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            from core.export import export_patches_to_json
+            from core.export import export_patches_to_json, send_export_json_file
 
             output_path = export_patches_to_json(
                 self._patches,
                 hanging_plane_size=self._controls.patches.hanging_plane_size,
             )
+            post_result = send_export_json_file()
         except Exception as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             print(f"[Export] failed: {exc}")
             return
 
-        QMessageBox.information(
-            self,
-            "Export complete",
-            f"Saved piece data to {output_path}",
-        )
-        print(f"[Export] wrote JSON to {output_path}")
+        if post_result.get("ok", False):
+            QMessageBox.information(
+                self,
+                "Export complete",
+                (
+                    f"Saved piece data to {output_path}\n"
+                    f"Posted JSON to API successfully (status={post_result.get('status')})."
+                ),
+            )
+            print(
+                f"[Export] wrote JSON to {output_path}; "
+                f"posted to API status={post_result.get('status')}"
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Export complete (API post failed)",
+                (
+                    f"Saved piece data to {output_path}\n"
+                    f"API post failed: status={post_result.get('status')}, "
+                    f"body={post_result.get('body')}"
+                ),
+            )
+            print(
+                f"[Export] wrote JSON to {output_path}; "
+                f"API post failed status={post_result.get('status')}, "
+                f"body={post_result.get('body')}"
+            )
 
     def _reset_state(self) -> None:
         self._worker = None
