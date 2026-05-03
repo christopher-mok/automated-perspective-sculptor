@@ -65,22 +65,24 @@ def _patch_parameters(patches: Sequence[Patch]) -> list[torch.nn.Parameter]:
     return params
 
 
-def _near_zero_patch(
+def _small_default_patch(
     position: np.ndarray,
     device: str,
     albedo: Sequence[float],
     creation_step: int,
     label: str,
 ) -> Patch:
+    """Create a small regular-pentagon patch for SRD additions."""
     control_points: list[ControlPoint] = []
-    radius = 0.001
+    radius = 0.05
+    handle_scale = radius * (4.0 / 3.0) * math.tan(math.pi / Patch.N_CONTROL_POINTS)
     for idx in range(Patch.N_CONTROL_POINTS):
         angle = 2.0 * math.pi * idx / Patch.N_CONTROL_POINTS - math.pi / 2.0
         control_points.append(ControlPoint(
             x=radius * math.cos(angle),
             y=radius * math.sin(angle),
             z=0.0,
-            handle_scale=0.01,
+            handle_scale=handle_scale,
             handle_rotation=angle + math.pi / 2.0,
             device=device,
         ))
@@ -93,6 +95,7 @@ def _near_zero_patch(
         label=label,
     )
     patch.creation_step = creation_step
+    patch.self_intersect_counter = 0
     return patch
 
 
@@ -562,7 +565,7 @@ class StochasticRewriteDescent:
         if len(model.patches) >= self.max_patches:
             return
         palette_color = [1.0, 1.0, 1.0]
-        patch = _near_zero_patch(
+        patch = _small_default_patch(
             rewrite.position,
             model.device,
             palette_color,
