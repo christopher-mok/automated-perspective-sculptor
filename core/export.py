@@ -23,12 +23,19 @@ def _rgb_to_hex(rgb: list[float]) -> str:
     return f"#{channels[0]:02x}{channels[1]:02x}{channels[2]:02x}"
 
 
-def _control_point_dict(cp: ControlPoint) -> dict[str, Any]:
+def _control_point_dict(
+    cp: ControlPoint,
+    *,
+    offset_xy: torch.Tensor | None = None,
+) -> dict[str, Any]:
     handle_in = cp.handle_in().detach().cpu().numpy()
     handle_out = cp.handle_out().detach().cpu().numpy()
+    point_xy = torch.stack([cp.x, cp.y]).detach().cpu()
+    if offset_xy is not None:
+        point_xy = point_xy - offset_xy.detach().cpu()
     return {
-        "x": _tensor_scalar(cp.x),
-        "y": _tensor_scalar(cp.y),
+        "x": float(point_xy[0]),
+        "y": float(point_xy[1]),
         "handleIn": {
             "x": float(handle_in[0]),
             "y": float(handle_in[1]),
@@ -40,13 +47,31 @@ def _control_point_dict(cp: ControlPoint) -> dict[str, Any]:
     }
 
 
+def _export_anchor_xy(patch: Patch) -> torch.Tensor:
+    points = [
+        torch.stack([cp.x, cp.y])
+        for cp in patch.control_points
+    ]
+    return torch.stack(points, dim=0).mean(dim=0).detach()
+
+
+def _anchored_export_center(patch: Patch, anchor_xy: torch.Tensor) -> torch.Tensor:
+    local_anchor = torch.stack([
+        anchor_xy.to(device=patch.center.device, dtype=patch.center.dtype)[0],
+        anchor_xy.to(device=patch.center.device, dtype=patch.center.dtype)[1],
+        torch.zeros((), device=patch.center.device, dtype=patch.center.dtype),
+    ])
+    return (patch.rotation_matrix() @ local_anchor) + patch.center
+
+
 def patch_to_piece_dict(
     patch: Patch,
     piece_id: str,
     *,
     piece_scale: float = 1.0,
 ) -> dict[str, Any]:
-    center = patch.center.detach().cpu().numpy()
+    anchor_xy = _export_anchor_xy(patch)
+    center = _anchored_export_center(patch, anchor_xy).detach().cpu().numpy()
     color = patch.albedo.detach().cpu().clamp(0.0, 1.0).numpy().tolist()
     return {
         "id": piece_id,
@@ -59,7 +84,7 @@ def patch_to_piece_dict(
         "theta": _tensor_scalar(patch.theta),
         "color": _rgb_to_hex(color),
         "controlPoints": [
-            _control_point_dict(cp)
+            _control_point_dict(cp, offset_xy=anchor_xy)
             for cp in patch.control_points
         ],
     }

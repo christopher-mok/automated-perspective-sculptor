@@ -594,7 +594,10 @@ class StochasticRewriteDescent:
         patch_states: Sequence[dict],
         optimizer_state: dict,
     ) -> None:
-        model.patches = [Patch.from_dict(copy.deepcopy(state), device=model.device) for state in patch_states]
+        model.patches[:] = [
+            Patch.from_dict(copy.deepcopy(state), device=model.device)
+            for state in patch_states
+        ]
         model.optim = self._rebuild_optimizer(model, optimizer)
         try:
             model.optim.load_state_dict(optimizer_state)
