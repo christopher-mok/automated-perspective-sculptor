@@ -258,6 +258,8 @@ class StochasticRewriteDescent:
 
     def _mandatory_delete_reason(self, model, patch_index: int) -> str:
         reasons: list[str] = []
+        if self._patch_is_entirely_above_hanging_plane(model, patch_index):
+            reasons.append("entirely above hanging plane")
         if self._patch_violates_rules(model, patch_index):
             reasons.append("rule violation")
         if not self._patch_contributes_to_either_image(model, patch_index):
@@ -265,6 +267,16 @@ class StochasticRewriteDescent:
         if not self._deleting_patch_changes_image(model, patch_index):
             reasons.append("delete has no image effect")
         return ", ".join(reasons)
+
+    def _patch_is_entirely_above_hanging_plane(self, model, patch_index: int) -> bool:
+        patch = model.patches[patch_index]
+        plane_y = float(getattr(model, "hanging_plane_y", 3.5))
+        n_per_segment = int(getattr(model.renderer, "n_per_segment", 20))
+        with torch.no_grad():
+            verts, _ = patch.extruded_mesh_world(n_per_segment=n_per_segment)
+            if verts.numel() == 0:
+                return False
+            return bool(torch.all(verts[:, 1] > plane_y).item())
 
     def _patch_violates_rules(self, model, patch_index: int) -> bool:
         patch = model.patches[patch_index]

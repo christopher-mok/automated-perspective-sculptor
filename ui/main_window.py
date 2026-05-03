@@ -299,6 +299,7 @@ class MainWindow(QMainWindow):
             sds_prompt=opt.sds_prompt,
             device=self._controls.patches.device,
             hanging_plane_size=self._controls.patches.hanging_plane_size,
+            hanging_plane_y=_HANGING_PLANE_Y,
             srd_config=self._controls.srd.config,
             parent=self,
         )

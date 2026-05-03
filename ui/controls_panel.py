@@ -315,7 +315,7 @@ class OptimizationSection(QGroupBox):
         layout.addLayout(_row("Run mode", self._run_mode_combo))
 
         # Step count
-        self._steps_slider, self._steps_lbl = _labeled_slider(1, 1000, 400, "{}")
+        self._steps_slider, self._steps_lbl = _labeled_slider(1, 10000, 400, "{}")
         self._steps_slider.valueChanged.connect(
             lambda v: self._steps_lbl.setText(str(v))
         )

@@ -41,6 +41,7 @@ DEFAULT_PALETTE: tuple[tuple[float, float, float], ...] = (
     (0.05, 0.05, 0.05),
 )
 THETA_CAMERA_MARGIN: float = np.deg2rad(15.0)
+DEFAULT_HANGING_PLANE_Y: float = 3.5
 
 
 def parse_palette(text: str | Sequence[str] | Sequence[Sequence[float]] | None) -> torch.Tensor:
@@ -434,6 +435,7 @@ class SceneOptimizer:
         camera_bounds_weight: float = 0.3,
         camera_bounds_xy_limit: float = 0.98,
         hanging_plane_size: float = 5.0,
+        hanging_plane_y: float = DEFAULT_HANGING_PLANE_Y,
         min_patch_area: float = 0.001,
         srd_config: dict[str, object] | None = None,
     ) -> None:
@@ -458,6 +460,7 @@ class SceneOptimizer:
         self.camera_bounds_weight = camera_bounds_weight
         self.camera_bounds_xy_limit = camera_bounds_xy_limit
         self.hanging_plane_size = hanging_plane_size
+        self.hanging_plane_y = hanging_plane_y
         self.min_patch_area = min_patch_area
 
         self.palette = parse_palette(palette).to(device)
