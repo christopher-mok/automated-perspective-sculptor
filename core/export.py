@@ -20,6 +20,7 @@ EXPORT_PIECES_SVG_PATH = Path("exports/pieces.svg")
 STRING_CONNECTION_IDS = ("left", "right")
 SCENE_UNIT_TO_INCH = 2.4
 INCH_TO_SCENE_UNIT = 1.0 / SCENE_UNIT_TO_INCH
+INCH_TO_MM = 25.4
 SVG_RED = "rgb(255,0,0)"
 SVG_BLUE = "rgb(0,0,255)"
 SVG_BLACK = "rgb(0,0,0)"
@@ -105,6 +106,25 @@ def _piece_label(index: int) -> str:
     return f"P{index:02d}"
 
 
+def _string_length_inches(length_scene_units: float) -> float:
+    return float(length_scene_units) * SCENE_UNIT_TO_INCH
+
+
+def _string_length_mm(length_scene_units: float) -> float:
+    return _string_length_inches(length_scene_units) * INCH_TO_MM
+
+
+def _string_connection_length_mm(connection: dict[str, Any]) -> float:
+    if "lengthMillimeters" in connection:
+        return float(connection["lengthMillimeters"])
+    return _string_length_mm(float(connection.get("length", 0.0)))
+
+
+def _string_connection_length_label(connection: dict[str, Any], marker: str) -> str:
+    length_mm = max(0, int(round(_string_connection_length_mm(connection))))
+    return f"{marker}x{length_mm}mm"
+
+
 def _svg_document(width_in: float, height_in: float, body: list[str]) -> str:
     return "\n".join([
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -170,6 +190,7 @@ def _piece_string_connection_dict(
         ],
         dtype=anchor_xy.dtype,
     ) - anchor_xy.detach().cpu()
+    length_scene_units = float(connection["length"])
     return {
         "id": str(connection["id"]),
         "placementMethod": str(connection.get("placementMethod", "")),
@@ -179,7 +200,9 @@ def _piece_string_connection_dict(
         "boardConnectionId": str(connection["boardConnectionId"]),
         "boardPoint": connection["boardPoint"],
         "stringId": str(connection["stringId"]),
-        "length": float(connection["length"]),
+        "length": length_scene_units,
+        "lengthInches": _string_length_inches(length_scene_units),
+        "lengthMillimeters": _string_length_mm(length_scene_units),
     }
 
 
@@ -228,6 +251,8 @@ def _payload_string_mappings(patches: list[Patch], piece_ids: list[str]) -> list
                 "boardConnectionId": str(connection["boardConnectionId"]),
                 "boardPoint": connection["boardPoint"],
                 "length": float(connection["length"]),
+                "lengthInches": _string_length_inches(float(connection["length"])),
+                "lengthMillimeters": _string_length_mm(float(connection["length"])),
             })
     return strings
 
@@ -364,6 +389,8 @@ def add_strings_to_patches(
             board_point = world_point.detach().clone()
             board_point[1] = board_point.new_tensor(float(hanging_plane_y))
             length = abs(float(board_point[1].detach().cpu()) - float(world_point[1].detach().cpu()))
+            length_inches = _string_length_inches(length)
+            length_millimeters = _string_length_mm(length)
             string_id = f"S{piece_idx:0{id_width}d}_{connection_id}"
             board_connection_id = f"B{piece_idx:0{id_width}d}_{connection_id}"
             connections.append({
@@ -377,6 +404,8 @@ def add_strings_to_patches(
                 "boardPoint": _xyz_dict(board_point),
                 "stringId": string_id,
                 "length": length,
+                "lengthInches": length_inches,
+                "lengthMillimeters": length_millimeters,
             })
         patch.string_connections = connections
         total += len(connections)
@@ -454,6 +483,7 @@ def export_grid_svg(
         )
         for connection_id, marker in (("left", "L"), ("right", "R")):
             x, y = points[connection_id]
+            connection_label = _string_connection_length_label(connections[connection_id], marker)
             label_y = min(max(y + SVG_SMALL_FONT_SIZE_IN * 1.6, SVG_SMALL_FONT_SIZE_IN), size_in)
             body.append(
                 f'<circle cx="{_fmt(x)}" cy="{_fmt(y)}" r="{_fmt(SVG_HOLE_RADIUS_IN)}" '
@@ -462,7 +492,7 @@ def export_grid_svg(
             body.append(
                 f'<text x="{_fmt(x)}" y="{_fmt(label_y)}" fill="{SVG_BLACK}" '
                 f'font-family="monospace" font-size="{_fmt(SVG_SMALL_FONT_SIZE_IN)}" '
-                f'text-anchor="middle">{marker}</text>'
+                f'text-anchor="middle">{escape(connection_label)}</text>'
             )
         body.append("</g>")
 
@@ -847,9 +877,11 @@ def export_pieces_svg(
         )
 
         for connection_id, marker in (("left", "L"), ("right", "R")):
-            local_point = connections[connection_id]["pieceLocalPoint"]
+            connection = connections[connection_id]
+            local_point = connection["pieceLocalPoint"]
             x_in = offset_x + (float(local_point["x"]) - float(min_xy[0])) * SCENE_UNIT_TO_INCH
             y_in = offset_y + (float(max_xy[1]) - float(local_point["y"])) * SCENE_UNIT_TO_INCH
+            connection_label = _string_connection_length_label(connection, marker)
             body.append(
                 f'<circle cx="{_fmt(x_in)}" cy="{_fmt(y_in)}" r="{_fmt(SVG_HOLE_RADIUS_IN)}" '
                 f'fill="{SVG_BLACK}"/>'
@@ -858,7 +890,7 @@ def export_pieces_svg(
             body.append(
                 f'<text x="{_fmt(x_in)}" y="{_fmt(label_y)}" fill="{SVG_BLACK}" '
                 f'font-family="monospace" font-size="{_fmt(SVG_SMALL_FONT_SIZE_IN)}" '
-                f'text-anchor="middle">{marker}</text>'
+                f'text-anchor="middle">{escape(connection_label)}</text>'
             )
 
         bottom_label_y = offset_y + info["height"] + SVG_SMALL_FONT_SIZE_IN * 1.5
@@ -941,6 +973,18 @@ def piece_dict_to_patch(piece: dict[str, Any], *, device: str = "cpu") -> Patch:
                 "boardPoint": connection.get("boardPoint", {}),
                 "stringId": str(connection.get("stringId", "")),
                 "length": float(connection.get("length", 0.0)),
+                "lengthInches": float(
+                    connection.get(
+                        "lengthInches",
+                        _string_length_inches(float(connection.get("length", 0.0))),
+                    )
+                ),
+                "lengthMillimeters": float(
+                    connection.get(
+                        "lengthMillimeters",
+                        _string_length_mm(float(connection.get("length", 0.0))),
+                    )
+                ),
             }
             for connection in string_connections
         ]
