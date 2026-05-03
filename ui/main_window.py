@@ -226,6 +226,8 @@ class MainWindow(QMainWindow):
         self._controls.export.export_requested.connect(self._on_export_json)
         self._controls.export.import_requested.connect(self._on_import_json)
         self._controls.export.strings_requested.connect(self._on_add_strings)
+        self._controls.export.grid_svg_requested.connect(self._on_export_grid_svg)
+        self._controls.export.pieces_svg_requested.connect(self._on_export_pieces_svg)
         self._controls.patches.hanging_plane_size_changed.connect(
             self._on_hanging_plane_size_changed
         )
@@ -492,6 +494,61 @@ class MainWindow(QMainWindow):
             f"[Strings] added {count} connections for {len(self._patches)} pieces; "
             f"hanging_plane_y={_HANGING_PLANE_Y:.3f}"
         )
+
+    def _refresh_strings_for_export(self) -> int:
+        from core.export import add_strings_to_patches
+
+        count = add_strings_to_patches(
+            self._patches,
+            hanging_plane_y=_HANGING_PLANE_Y,
+        )
+        self._update_string_lines()
+        return count
+
+    def _on_export_grid_svg(self) -> None:
+        if not self._patches:
+            QMessageBox.warning(self, "Export grid SVG", "Initialize or import patches first.")
+            return
+        if self._worker is not None and self._worker.isRunning():
+            QMessageBox.warning(self, "Export grid SVG", "Stop optimization before exporting SVG.")
+            return
+
+        try:
+            from core.export import export_grid_svg
+
+            self._refresh_strings_for_export()
+            output_path = export_grid_svg(
+                self._patches,
+                hanging_plane_size=self._controls.patches.hanging_plane_size,
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Export grid SVG failed", str(exc))
+            print(f"[Export grid SVG] failed: {exc}")
+            return
+
+        QMessageBox.information(self, "Export grid SVG complete", f"Saved {output_path}")
+        print(f"[Export grid SVG] wrote {output_path}")
+
+    def _on_export_pieces_svg(self) -> None:
+        if not self._patches:
+            QMessageBox.warning(self, "Export pieces SVG", "Initialize or import patches first.")
+            return
+        if self._worker is not None and self._worker.isRunning():
+            QMessageBox.warning(self, "Export pieces SVG", "Stop optimization before exporting SVG.")
+            return
+
+        try:
+            from core.export import export_pieces_svg
+
+            self._refresh_strings_for_export()
+            output_path = export_pieces_svg(self._patches)
+        except Exception as exc:
+            QMessageBox.warning(self, "Export pieces SVG failed", str(exc))
+            print(f"[Export pieces SVG] failed: {exc}")
+            return
+
+        QMessageBox.information(self, "Export pieces SVG complete", f"Saved {output_path}")
+        print(f"[Export pieces SVG] wrote {output_path}")
 
     def _on_import_json(self) -> None:
         if self._worker is not None and self._worker.isRunning():

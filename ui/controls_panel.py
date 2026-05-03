@@ -608,6 +608,8 @@ class ExportSection(QGroupBox):
     export_requested = pyqtSignal()
     import_requested = pyqtSignal()
     strings_requested = pyqtSignal()
+    grid_svg_requested = pyqtSignal()
+    pieces_svg_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Export", parent)
@@ -646,6 +648,26 @@ class ExportSection(QGroupBox):
         self._strings_btn.clicked.connect(self.strings_requested.emit)
         layout.addWidget(self._strings_btn)
 
+        self._grid_svg_btn = QPushButton("Export grid SVG")
+        self._grid_svg_btn.setEnabled(False)
+        self._grid_svg_btn.setStyleSheet(
+            "QPushButton { background: #3a3a3a; color: #777; border-radius: 4px; padding: 6px; }"
+            "QPushButton:enabled { background: #7a3e3e; color: #fff; }"
+            "QPushButton:enabled:hover { background: #964e4e; }"
+        )
+        self._grid_svg_btn.clicked.connect(self.grid_svg_requested.emit)
+        layout.addWidget(self._grid_svg_btn)
+
+        self._pieces_svg_btn = QPushButton("Export pieces SVG")
+        self._pieces_svg_btn.setEnabled(False)
+        self._pieces_svg_btn.setStyleSheet(
+            "QPushButton { background: #3a3a3a; color: #777; border-radius: 4px; padding: 6px; }"
+            "QPushButton:enabled { background: #7a3e3e; color: #fff; }"
+            "QPushButton:enabled:hover { background: #964e4e; }"
+        )
+        self._pieces_svg_btn.clicked.connect(self.pieces_svg_requested.emit)
+        layout.addWidget(self._pieces_svg_btn)
+
         note = QLabel("Import previous designs or export current patches to exports/pieces.json.")
         note.setStyleSheet("color: #666; font-size: 11px; font-style: italic;")
         note.setWordWrap(True)
@@ -654,6 +676,8 @@ class ExportSection(QGroupBox):
     def set_enabled(self, enabled: bool) -> None:
         self._export_btn.setEnabled(enabled)
         self._strings_btn.setEnabled(enabled)
+        self._grid_svg_btn.setEnabled(enabled)
+        self._pieces_svg_btn.setEnabled(enabled)
 
 
 # ---------------------------------------------------------------------------

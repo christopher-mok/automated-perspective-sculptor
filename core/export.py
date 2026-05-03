@@ -7,13 +7,25 @@ import math
 from pathlib import Path
 from typing import Any
 from urllib import error, request
+from xml.sax.saxutils import escape
 
 import torch
 
 from core.patch import ControlPoint, Patch
 
 EXPORT_JSON_PATH = Path("exports/pieces.json")
+EXPORT_GRID_SVG_PATH = Path("exports/grid.svg")
+EXPORT_PIECES_SVG_PATH = Path("exports/pieces.svg")
 STRING_CONNECTION_IDS = ("left", "right")
+SCENE_UNIT_TO_INCH = 2.4
+INCH_TO_SCENE_UNIT = 1.0 / SCENE_UNIT_TO_INCH
+SVG_RED = "rgb(255,0,0)"
+SVG_BLUE = "rgb(0,0,255)"
+SVG_BLACK = "rgb(0,0,0)"
+SVG_STROKE_IN = 0.01
+SVG_HOLE_RADIUS_IN = 0.035
+SVG_FONT_SIZE_IN = 0.16
+SVG_SMALL_FONT_SIZE_IN = 0.12
 
 
 def _tensor_scalar(value: torch.Tensor) -> float:
@@ -82,6 +94,34 @@ def _xy_dict(point: torch.Tensor | list[float] | tuple[float, float]) -> dict[st
         "x": float(values[0]),
         "y": float(values[1]),
     }
+
+
+def _fmt(value: float) -> str:
+    return f"{float(value):.4f}".rstrip("0").rstrip(".")
+
+
+def _piece_label(index: int) -> str:
+    return f"P{index:02d}"
+
+
+def _svg_document(width_in: float, height_in: float, body: list[str]) -> str:
+    return "\n".join([
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        (
+            f'<svg xmlns="http://www.w3.org/2000/svg" '
+            f'width="{_fmt(width_in)}in" height="{_fmt(height_in)}in" '
+            f'viewBox="0 0 {_fmt(width_in)} {_fmt(height_in)}">'
+        ),
+        *body,
+        "</svg>",
+        "",
+    ])
+
+
+def _write_text(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
 def _export_anchor_xy(patch: Patch) -> torch.Tensor:
@@ -304,6 +344,218 @@ def add_strings_to_patches(
         patch.string_connections = connections
         total += len(connections)
     return total
+
+
+def _connections_by_id(patch: Patch) -> dict[str, dict[str, Any]]:
+    return {
+        str(connection.get("id", "")): connection
+        for connection in _patch_string_connections(patch)
+    }
+
+
+def _require_string_connections(patches: list[Patch]) -> None:
+    missing = [
+        _piece_label(idx)
+        for idx, patch in enumerate(patches, start=1)
+        if any(connection_id not in _connections_by_id(patch) for connection_id in STRING_CONNECTION_IDS)
+    ]
+    if missing:
+        raise ValueError(
+            "String connections are missing for: "
+            f"{', '.join(missing)}. Add strings before SVG export."
+        )
+
+
+def _board_svg_point(point: dict[str, Any], half_size: float) -> tuple[float, float]:
+    x_in = (float(point["x"]) + half_size) * SCENE_UNIT_TO_INCH
+    y_in = (half_size - float(point["z"])) * SCENE_UNIT_TO_INCH
+    return x_in, y_in
+
+
+def export_grid_svg(
+    patches: list[Patch],
+    *,
+    hanging_plane_size: float,
+    output_path: str | Path = EXPORT_GRID_SVG_PATH,
+) -> Path:
+    """Export the hanging board connection layout as an inches-scaled SVG."""
+    _require_string_connections(patches)
+    size_in = float(hanging_plane_size) * SCENE_UNIT_TO_INCH
+    half_size = float(hanging_plane_size) * 0.5
+    body: list[str] = [
+        (
+            f'<rect x="0" y="0" width="{_fmt(size_in)}" height="{_fmt(size_in)}" '
+            f'fill="none" stroke="{SVG_RED}" stroke-width="{_fmt(SVG_STROKE_IN)}"/>'
+        )
+    ]
+
+    for idx, patch in enumerate(patches, start=1):
+        label = _piece_label(idx)
+        connections = _connections_by_id(patch)
+        points: dict[str, tuple[float, float]] = {}
+        for connection_id in STRING_CONNECTION_IDS:
+            points[connection_id] = _board_svg_point(
+                connections[connection_id]["boardPoint"],
+                half_size,
+            )
+
+        left = points["left"]
+        right = points["right"]
+        mid_x = 0.5 * (left[0] + right[0])
+        mid_y = 0.5 * (left[1] + right[1])
+        text_y = min(max(mid_y - 0.10, SVG_FONT_SIZE_IN), size_in - SVG_FONT_SIZE_IN * 0.4)
+        body.append(f'<g id="{escape(label)}_strings">')
+        body.append(
+            f'<line x1="{_fmt(left[0])}" y1="{_fmt(left[1])}" '
+            f'x2="{_fmt(right[0])}" y2="{_fmt(right[1])}" '
+            f'stroke="{SVG_BLACK}" stroke-width="{_fmt(SVG_STROKE_IN)}" fill="none"/>'
+        )
+        body.append(
+            f'<text x="{_fmt(mid_x)}" y="{_fmt(text_y)}" fill="{SVG_BLACK}" '
+            f'font-family="monospace" font-size="{_fmt(SVG_FONT_SIZE_IN)}" '
+            f'text-anchor="middle">{escape(label)}</text>'
+        )
+        for connection_id, marker in (("left", "L"), ("right", "R")):
+            x, y = points[connection_id]
+            label_y = min(max(y + SVG_SMALL_FONT_SIZE_IN * 1.6, SVG_SMALL_FONT_SIZE_IN), size_in)
+            body.append(
+                f'<circle cx="{_fmt(x)}" cy="{_fmt(y)}" r="{_fmt(SVG_HOLE_RADIUS_IN)}" '
+                f'fill="{SVG_BLACK}"/>'
+            )
+            body.append(
+                f'<text x="{_fmt(x)}" y="{_fmt(label_y)}" fill="{SVG_BLACK}" '
+                f'font-family="monospace" font-size="{_fmt(SVG_SMALL_FONT_SIZE_IN)}" '
+                f'text-anchor="middle">{marker}</text>'
+            )
+        body.append("</g>")
+
+    return _write_text(Path(output_path), _svg_document(size_in, size_in, body))
+
+
+def _piece_outline_xy(patch: Patch, n_per_segment: int = 32) -> torch.Tensor:
+    return patch.sample_spline_local(n_per_segment).detach()[:, :2].cpu()
+
+
+def _piece_svg_points(
+    xy: torch.Tensor,
+    min_xy: torch.Tensor,
+    max_y: float,
+    offset_x: float,
+    offset_y: float,
+) -> list[tuple[float, float]]:
+    points: list[tuple[float, float]] = []
+    for point in xy:
+        x_in = offset_x + (float(point[0]) - float(min_xy[0])) * SCENE_UNIT_TO_INCH
+        y_in = offset_y + (max_y - float(point[1])) * SCENE_UNIT_TO_INCH
+        points.append((x_in, y_in))
+    return points
+
+
+def _svg_polyline_points(points: list[tuple[float, float]]) -> str:
+    return " ".join(f"{_fmt(x)},{_fmt(y)}" for x, y in points)
+
+
+def export_pieces_svg(
+    patches: list[Patch],
+    *,
+    output_path: str | Path = EXPORT_PIECES_SVG_PATH,
+    sheet_width_in: float = 12.0,
+) -> Path:
+    """Export all cut piece outlines and string holes as an inches-scaled SVG."""
+    _require_string_connections(patches)
+    margin = 0.35
+    label_gap = 0.30
+    piece_infos: list[dict[str, Any]] = []
+    max_piece_width = 0.0
+    for idx, patch in enumerate(patches, start=1):
+        xy = _piece_outline_xy(patch)
+        min_xy = xy.min(dim=0).values
+        max_xy = xy.max(dim=0).values
+        width = max(float(max_xy[0] - min_xy[0]) * SCENE_UNIT_TO_INCH, SVG_HOLE_RADIUS_IN * 4.0)
+        height = max(float(max_xy[1] - min_xy[1]) * SCENE_UNIT_TO_INCH, SVG_HOLE_RADIUS_IN * 4.0)
+        max_piece_width = max(max_piece_width, width)
+        piece_infos.append({
+            "index": idx,
+            "label": _piece_label(idx),
+            "patch": patch,
+            "xy": xy,
+            "min_xy": min_xy,
+            "max_xy": max_xy,
+            "width": width,
+            "height": height,
+        })
+
+    sheet_width = max(float(sheet_width_in), max_piece_width + margin * 2.0)
+    cursor_x = margin
+    cursor_y = margin
+    row_height = 0.0
+    for info in piece_infos:
+        cell_width = info["width"] + margin
+        cell_height = info["height"] + label_gap + margin
+        if cursor_x + cell_width > sheet_width and cursor_x > margin:
+            cursor_x = margin
+            cursor_y += row_height + margin
+            row_height = 0.0
+        info["offset_x"] = cursor_x
+        info["offset_y"] = cursor_y
+        cursor_x += cell_width
+        row_height = max(row_height, cell_height)
+    sheet_height = max(cursor_y + row_height + margin, margin * 2.0)
+
+    body: list[str] = []
+    for info in piece_infos:
+        patch = info["patch"]
+        label = info["label"]
+        min_xy = info["min_xy"]
+        max_xy = info["max_xy"]
+        offset_x = float(info["offset_x"])
+        offset_y = float(info["offset_y"])
+        points = _piece_svg_points(
+            info["xy"],
+            min_xy,
+            float(max_xy[1]),
+            offset_x,
+            offset_y,
+        )
+        connections = _connections_by_id(patch)
+        center_x = offset_x + info["width"] * 0.5
+        center_y = offset_y + info["height"] * 0.5
+        body.append(f'<g id="{escape(label)}">')
+        body.append(
+            f'<polygon points="{_svg_polyline_points(points)}" fill="none" '
+            f'stroke="{SVG_RED}" stroke-width="{_fmt(SVG_STROKE_IN)}"/>'
+        )
+        body.append(
+            f'<text x="{_fmt(center_x)}" y="{_fmt(center_y)}" fill="{SVG_BLACK}" '
+            f'font-family="monospace" font-size="{_fmt(SVG_FONT_SIZE_IN)}" '
+            f'font-weight="bold" text-anchor="middle" dominant-baseline="middle">'
+            f'{escape(label)}</text>'
+        )
+
+        for connection_id, marker in (("left", "L"), ("right", "R")):
+            local_point = connections[connection_id]["pieceLocalPoint"]
+            x_in = offset_x + (float(local_point["x"]) - float(min_xy[0])) * SCENE_UNIT_TO_INCH
+            y_in = offset_y + (float(max_xy[1]) - float(local_point["y"])) * SCENE_UNIT_TO_INCH
+            body.append(
+                f'<circle cx="{_fmt(x_in)}" cy="{_fmt(y_in)}" r="{_fmt(SVG_HOLE_RADIUS_IN)}" '
+                f'fill="{SVG_BLACK}"/>'
+            )
+            label_y = max(y_in - SVG_SMALL_FONT_SIZE_IN * 0.7, SVG_SMALL_FONT_SIZE_IN)
+            body.append(
+                f'<text x="{_fmt(x_in)}" y="{_fmt(label_y)}" fill="{SVG_BLACK}" '
+                f'font-family="monospace" font-size="{_fmt(SVG_SMALL_FONT_SIZE_IN)}" '
+                f'text-anchor="middle">{marker}</text>'
+            )
+
+        bottom_label_y = offset_y + info["height"] + SVG_SMALL_FONT_SIZE_IN * 1.5
+        body.append(
+            f'<text x="{_fmt(center_x)}" y="{_fmt(bottom_label_y)}" fill="{SVG_BLACK}" '
+            f'font-family="monospace" font-size="{_fmt(SVG_SMALL_FONT_SIZE_IN)}" '
+            f'text-anchor="middle">{escape(label)}</text>'
+        )
+        body.append("</g>")
+
+    return _write_text(Path(output_path), _svg_document(sheet_width, sheet_height, body))
 
 
 def _piece_control_point_to_model(cp: dict[str, Any], device: str) -> ControlPoint:
