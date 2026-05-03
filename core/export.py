@@ -121,8 +121,18 @@ def _piece_string_connection_dict(
         ],
         dtype=anchor_xy.dtype,
     ) - anchor_xy.detach().cpu()
+    center_of_mass = connection.get("pieceCenterOfMass", {})
+    center_xy = torch.tensor(
+        [
+            float(center_of_mass.get("x", 0.0)),
+            float(center_of_mass.get("y", 0.0)),
+        ],
+        dtype=anchor_xy.dtype,
+    ) - anchor_xy.detach().cpu()
     return {
         "id": str(connection["id"]),
+        "placementMethod": str(connection.get("placementMethod", "")),
+        "pieceCenterOfMass": _xy_dict(center_xy),
         "pieceLocalPoint": _xy_dict(local_xy),
         "pieceWorldPoint": connection["pieceWorldPoint"],
         "boardConnectionId": str(connection["boardConnectionId"]),
@@ -224,34 +234,34 @@ def build_export_payload(
     return payload
 
 
-def _top_string_local_points(patch: Patch, n_per_segment: int = 32) -> list[torch.Tensor]:
+def _polygon_centroid_xy(xy: torch.Tensor) -> torch.Tensor:
+    nxt = torch.roll(xy, shifts=-1, dims=0)
+    cross = xy[:, 0] * nxt[:, 1] - nxt[:, 0] * xy[:, 1]
+    area_twice = cross.sum()
+    if float(area_twice.abs()) <= 1e-8:
+        return xy.mean(dim=0)
+    centroid = torch.stack([
+        ((xy[:, 0] + nxt[:, 0]) * cross).sum(),
+        ((xy[:, 1] + nxt[:, 1]) * cross).sum(),
+    ]) / (3.0 * area_twice)
+    return centroid
+
+
+def _balanced_string_local_points(patch: Patch, n_per_segment: int = 32) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     pts = patch.sample_spline_local(n_per_segment).detach()
     xy = pts[:, :2]
-    min_y = xy[:, 1].min()
-    max_y = xy[:, 1].max()
-    height = max_y - min_y
-    if float(height) <= 1e-6:
-        raise ValueError(f"Patch {patch.label!r} is too flat vertically for string placement.")
+    if len(xy) < 3:
+        raise ValueError(f"Patch {patch.label!r} has too few outline points for string placement.")
 
-    upper_cutoff = max_y - height * 0.20
-    candidates = xy[xy[:, 1] >= upper_cutoff]
-    if len(candidates) < 2:
-        candidates = xy
+    center = _polygon_centroid_xy(xy)
+    leftmost = xy[int(torch.argmin(xy[:, 0]))]
+    rightmost = xy[int(torch.argmax(xy[:, 0]))]
+    if torch.linalg.norm(leftmost - rightmost) <= 1e-5:
+        raise ValueError(f"Patch {patch.label!r} is too narrow for stable string placement.")
 
-    left_idx = int(torch.argmin(candidates[:, 0]))
-    right_idx = int(torch.argmax(candidates[:, 0]))
-    left = candidates[left_idx]
-    right = candidates[right_idx]
-    if torch.linalg.norm(left - right) <= 1e-5:
-        sorted_by_y = xy[torch.argsort(xy[:, 1], descending=True)]
-        left = sorted_by_y[0]
-        for candidate in sorted_by_y[1:]:
-            if torch.linalg.norm(candidate - left) > 1e-5:
-                right = candidate
-                break
-    if float(left[0]) > float(right[0]):
-        left, right = right, left
-    return [left, right]
+    left_anchor = 0.5 * (center + leftmost)
+    right_anchor = 0.5 * (center + rightmost)
+    return center, left_anchor, right_anchor
 
 
 def add_strings_to_patches(
@@ -266,7 +276,8 @@ def add_strings_to_patches(
     for piece_idx, patch in enumerate(patches, start=1):
         piece_id = f"{id_prefix}{piece_idx:0{id_width}d}"
         connections: list[dict[str, Any]] = []
-        for connection_id, local_xy in zip(STRING_CONNECTION_IDS, _top_string_local_points(patch)):
+        center_xy, left_xy, right_xy = _balanced_string_local_points(patch)
+        for connection_id, local_xy in zip(STRING_CONNECTION_IDS, (left_xy, right_xy)):
             local_point = torch.stack([
                 local_xy[0].to(device=patch.center.device, dtype=patch.center.dtype),
                 local_xy[1].to(device=patch.center.device, dtype=patch.center.dtype),
@@ -281,6 +292,8 @@ def add_strings_to_patches(
             connections.append({
                 "id": connection_id,
                 "pieceId": piece_id,
+                "placementMethod": "center_of_mass_to_extreme_midpoint",
+                "pieceCenterOfMass": _xy_dict(center_xy),
                 "pieceLocalPoint": _xy_dict(local_xy),
                 "pieceWorldPoint": _xyz_dict(world_point),
                 "boardConnectionId": board_connection_id,
@@ -354,6 +367,8 @@ def piece_dict_to_patch(piece: dict[str, Any], *, device: str = "cpu") -> Patch:
             {
                 "id": str(connection.get("id", "")),
                 "pieceId": str(piece.get("id", "")),
+                "placementMethod": str(connection.get("placementMethod", "")),
+                "pieceCenterOfMass": connection.get("pieceCenterOfMass", {}),
                 "pieceLocalPoint": connection.get("pieceLocalPoint", {}),
                 "pieceWorldPoint": connection.get("pieceWorldPoint", {}),
                 "boardConnectionId": str(connection.get("boardConnectionId", "")),
