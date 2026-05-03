@@ -9,6 +9,7 @@ from typing import Any
 from urllib import error, request
 from xml.sax.saxutils import escape
 
+import numpy as np
 import torch
 
 from core.patch import ControlPoint, Patch
@@ -506,24 +507,254 @@ def _piece_dict_svg_path_data(
     return " ".join(commands)
 
 
+def _patch_outline_svg_path_data(
+    outline_xy: torch.Tensor,
+    min_xy: torch.Tensor,
+    max_y: float,
+    offset_x: float,
+    offset_y: float,
+) -> str:
+    if outline_xy.ndim != 2 or outline_xy.shape[1] != 2 or len(outline_xy) < 2:
+        raise ValueError("Patch outline must contain at least 2 XY points.")
+    commands: list[str] = []
+    x0, y0 = _piece_svg_point(outline_xy[0], min_xy, max_y, offset_x, offset_y)
+    commands.append(f"M {_fmt(x0)} {_fmt(y0)}")
+    for point in outline_xy[1:]:
+        x, y = _piece_svg_point(point, min_xy, max_y, offset_x, offset_y)
+        commands.append(f"L {_fmt(x)} {_fmt(y)}")
+    commands.append("Z")
+    return " ".join(commands)
+
+
+def _patch_component_outlines_svg_path_data(
+    outlines_xy: list[torch.Tensor],
+    min_xy: torch.Tensor,
+    max_y: float,
+    offset_x: float,
+    offset_y: float,
+) -> str:
+    commands: list[str] = []
+    for outline_xy in outlines_xy:
+        if outline_xy.ndim != 2 or outline_xy.shape[1] != 2 or len(outline_xy) < 2:
+            continue
+        x0, y0 = _piece_svg_point(outline_xy[0], min_xy, max_y, offset_x, offset_y)
+        commands.append(f"M {_fmt(x0)} {_fmt(y0)}")
+        for point in outline_xy[1:]:
+            x, y = _piece_svg_point(point, min_xy, max_y, offset_x, offset_y)
+            commands.append(f"L {_fmt(x)} {_fmt(y)}")
+        commands.append("Z")
+    if not commands:
+        raise ValueError("No outline components were available for SVG path export.")
+    return " ".join(commands)
+
+
+def _polyline_self_intersections(points: np.ndarray, eps: float = 1e-9) -> int:
+    """Count strict self-intersections in a closed polyline."""
+    if len(points) < 4:
+        return 0
+
+    def _cross(a: np.ndarray, b: np.ndarray) -> float:
+        return float(a[0] * b[1] - a[1] * b[0])
+
+    def _segments_intersect(a: np.ndarray, b: np.ndarray, c: np.ndarray, d: np.ndarray) -> bool:
+        ab = b - a
+        cd = d - c
+        ac = c - a
+        ad = d - a
+        ca = a - c
+        cb = b - c
+
+        o1 = _cross(ab, ac)
+        o2 = _cross(ab, ad)
+        o3 = _cross(cd, ca)
+        o4 = _cross(cd, cb)
+        return ((o1 > eps and o2 < -eps) or (o1 < -eps and o2 > eps)) and (
+            (o3 > eps and o4 < -eps) or (o3 < -eps and o4 > eps)
+        )
+
+    count = 0
+    n = len(points)
+    for i in range(n):
+        a0 = points[i]
+        a1 = points[(i + 1) % n]
+        for j in range(i + 1, n):
+            # Adjacent segments (including wraparound) are allowed to meet.
+            if abs(i - j) <= 1 or (i == 0 and j == n - 1):
+                continue
+            b0 = points[j]
+            b1 = points[(j + 1) % n]
+            if _segments_intersect(a0, a1, b0, b1):
+                count += 1
+    return count
+
+
+def _radial_envelope_outline(points: np.ndarray, n_rays: int = 1440) -> np.ndarray:
+    """Build a non-self-intersecting outer envelope from a sampled outline.
+
+    The viewport mesh face is a centroid fan. This radial envelope follows the
+    furthest intersection along each ray from the same centroid, matching the
+    visually filled boundary without Bezier crossover artifacts.
+    """
+    if points.ndim != 2 or points.shape[1] != 2 or len(points) < 3:
+        return points
+
+    centroid = points.mean(axis=0)
+    seg_start = points
+    seg_end = np.roll(points, -1, axis=0)
+    seg_delta = seg_end - seg_start
+
+    out: list[np.ndarray] = []
+    eps = 1e-9
+    n_rays = max(int(n_rays), 360)
+
+    for ray_idx in range(n_rays):
+        theta = 2.0 * math.pi * ray_idx / n_rays
+        ray = np.array([math.cos(theta), math.sin(theta)], dtype=np.float64)
+        best_t = -1.0
+        best_point: np.ndarray | None = None
+
+        for start, delta in zip(seg_start, seg_delta):
+            denom = float(ray[0] * delta[1] - ray[1] * delta[0])
+            if abs(denom) < eps:
+                continue
+            offset = start - centroid
+            t = float((offset[0] * delta[1] - offset[1] * delta[0]) / denom)
+            u = float((offset[0] * ray[1] - offset[1] * ray[0]) / denom)
+            if t >= 0.0 and -1e-6 <= u <= 1.0 + 1e-6 and t > best_t:
+                best_t = t
+                best_point = centroid + t * ray
+
+        if best_point is not None:
+            out.append(best_point)
+
+    if len(out) < 3:
+        return points
+
+    dedup: list[np.ndarray] = [out[0]]
+    for point in out[1:]:
+        if float(np.linalg.norm(point - dedup[-1])) > 1e-6:
+            dedup.append(point)
+    if len(dedup) > 2 and float(np.linalg.norm(dedup[0] - dedup[-1])) <= 1e-6:
+        dedup.pop()
+    return np.asarray(dedup, dtype=np.float32)
+
+
+def _patch_viewport_outline_components(
+    patch: Patch,
+    *,
+    n_per_segment: int,
+    raster_max_dim_px: int = 3072,
+    pad_px: int = 6,
+) -> list[torch.Tensor]:
+    """Trace visible piece components from the same mesh the viewport draws."""
+    try:
+        import cv2  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise ImportError("Viewport-matching SVG export requires OpenCV (`cv2`).") from exc
+
+    with torch.no_grad():
+        vertices_world, faces = patch.extruded_mesh_world(n_per_segment=n_per_segment)
+        center = patch.center.detach().cpu().numpy()
+        rotation = patch.rotation_matrix().detach().cpu().numpy()
+
+    verts_world = vertices_world.detach().cpu().numpy()
+    faces_np = faces.detach().cpu().numpy().astype(np.int32)
+
+    # Inverse local_to_world (row-vector form): local = (world - center) @ R
+    verts_local = (verts_world - center[None, :]) @ rotation
+    xy = verts_local[:, :2].astype(np.float64)
+    min_x, min_y = float(xy[:, 0].min()), float(xy[:, 1].min())
+    max_x, max_y = float(xy[:, 0].max()), float(xy[:, 1].max())
+    span_x = max(max_x - min_x, 1e-6)
+    span_y = max(max_y - min_y, 1e-6)
+    max_dim = max(span_x, span_y)
+    scale = max(1.0, (float(raster_max_dim_px) - 2.0 * pad_px) / max_dim)
+
+    width_px = max(32, int(math.ceil(span_x * scale)) + 2 * pad_px + 1)
+    height_px = max(32, int(math.ceil(span_y * scale)) + 2 * pad_px + 1)
+    mask = np.zeros((height_px, width_px), dtype=np.uint8)
+
+    def _xy_to_px(points_xy: np.ndarray) -> np.ndarray:
+        px_x = (points_xy[:, 0] - min_x) * scale + pad_px
+        px_y = (max_y - points_xy[:, 1]) * scale + pad_px
+        return np.stack([px_x, px_y], axis=1)
+
+    for tri in faces_np:
+        tri_xy = xy[tri]
+        # Side-wall faces collapse toward zero area in local XY; skip them so
+        # raster tracing reflects the face silhouette instead of pixel bridges.
+        tri_area = abs(
+            (tri_xy[1, 0] - tri_xy[0, 0]) * (tri_xy[2, 1] - tri_xy[0, 1])
+            - (tri_xy[1, 1] - tri_xy[0, 1]) * (tri_xy[2, 0] - tri_xy[0, 0])
+        ) * 0.5
+        if tri_area <= 1e-10:
+            continue
+        tri_px = np.round(_xy_to_px(tri_xy)).astype(np.int32)
+        cv2.fillConvexPoly(mask, tri_px, 255)
+
+    contours, _hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return [torch.from_numpy(xy.astype(np.float32))]
+
+    contour_areas = [float(cv2.contourArea(contour)) for contour in contours]
+    max_area = max(contour_areas) if contour_areas else 0.0
+    min_area = max(4.0, max_area * 1e-4)
+
+    components: list[tuple[float, torch.Tensor]] = []
+    for contour, area in zip(contours, contour_areas):
+        if area < min_area:
+            continue
+        pts_px = contour[:, 0, :].astype(np.float64)
+        x_local = (pts_px[:, 0] - pad_px) / scale + min_x
+        y_local = max_y - ((pts_px[:, 1] - pad_px) / scale)
+        pts_local = np.stack([x_local, y_local], axis=1).astype(np.float32)
+        components.append((area, torch.from_numpy(pts_local)))
+
+    if not components:
+        return [torch.from_numpy(xy.astype(np.float32))]
+
+    # Stable ordering: largest visible component first.
+    components.sort(key=lambda item: item[0], reverse=True)
+    return [component for _area, component in components]
+
+
 def export_pieces_svg(
     patches: list[Patch],
     *,
     output_path: str | Path = EXPORT_PIECES_SVG_PATH,
     sheet_width_in: float = 12.0,
+    samples_per_segment: int = 20,
 ) -> Path:
-    """Export all cut piece outlines and string holes as an inches-scaled SVG."""
+    """Export all cut piece outlines and string holes as an inches-scaled SVG.
+
+    The outline always follows the viewport-like filled shape by projecting
+    the sampled spline through a centroid-fan envelope (the same visual model
+    used by the viewport front-face fill).
+    """
     _require_string_connections(patches)
+    if samples_per_segment < 8:
+        raise ValueError("samples_per_segment must be at least 8 for stable SVG export.")
+
     margin = 0.35
     label_gap = 0.30
     piece_infos: list[dict[str, Any]] = []
     max_piece_width = 0.0
     for idx, patch in enumerate(patches, start=1):
         label = _piece_label(idx)
-        piece = patch_to_piece_dict(patch, label)
-        xy = _piece_dict_sample_outline(piece, n_per_segment=64)
-        min_xy = xy.min(dim=0).values
-        max_xy = xy.max(dim=0).values
+        outlines_xy = _patch_viewport_outline_components(
+            patch,
+            n_per_segment=samples_per_segment,
+        )
+        if not outlines_xy:
+            raise ValueError(f"Patch {label} did not produce any viewport outline components.")
+        all_xy = torch.cat(outlines_xy, dim=0)
+        if not torch.isfinite(all_xy).all():
+            raise ValueError(
+                f"Patch {label} contains non-finite viewport geometry. "
+                "Try reducing optimization aggressiveness or resetting this piece."
+            )
+        min_xy = all_xy.min(dim=0).values
+        max_xy = all_xy.max(dim=0).values
         width = max(float(max_xy[0] - min_xy[0]) * SCENE_UNIT_TO_INCH, SVG_HOLE_RADIUS_IN * 4.0)
         height = max(float(max_xy[1] - min_xy[1]) * SCENE_UNIT_TO_INCH, SVG_HOLE_RADIUS_IN * 4.0)
         max_piece_width = max(max_piece_width, width)
@@ -531,8 +762,7 @@ def export_pieces_svg(
             "index": idx,
             "label": label,
             "patch": patch,
-            "piece": piece,
-            "xy": xy,
+            "outlines_xy": outlines_xy,
             "min_xy": min_xy,
             "max_xy": max_xy,
             "width": width,
@@ -558,21 +788,18 @@ def export_pieces_svg(
 
     body: list[str] = []
     for info in piece_infos:
-        piece = info["piece"]
+        patch = info["patch"]
         label = info["label"]
         min_xy = info["min_xy"]
         max_xy = info["max_xy"]
         offset_x = float(info["offset_x"])
         offset_y = float(info["offset_y"])
-        connections = {
-            str(connection["id"]): connection
-            for connection in piece.get("stringConnections", [])
-        }
+        connections = _connections_by_id(patch)
         center_x = offset_x + info["width"] * 0.5
         center_y = offset_y + info["height"] * 0.5
         body.append(f'<g id="{escape(label)}">')
         body.append(
-            f'<path d="{_piece_dict_svg_path_data(piece, min_xy, float(max_xy[1]), offset_x, offset_y)}" '
+            f'<path d="{_patch_component_outlines_svg_path_data(info["outlines_xy"], min_xy, float(max_xy[1]), offset_x, offset_y)}" '
             f'fill="none" '
             f'stroke="{SVG_RED}" stroke-width="{_fmt(SVG_STROKE_IN)}"/>'
         )
