@@ -288,20 +288,56 @@ def _polygon_centroid_xy(xy: torch.Tensor) -> torch.Tensor:
     return centroid
 
 
-def _balanced_string_local_points(patch: Patch, n_per_segment: int = 32) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def _upper_boundary_point_at_x(xy: torch.Tensor, target_x: torch.Tensor) -> torch.Tensor:
+    target = float(target_x.detach().cpu())
+    candidates: list[torch.Tensor] = []
+    eps = 1e-7
+    for idx in range(len(xy)):
+        p0 = xy[idx]
+        p1 = xy[(idx + 1) % len(xy)]
+        x0 = float(p0[0].detach().cpu())
+        x1 = float(p1[0].detach().cpu())
+        if abs(x1 - x0) <= eps:
+            if abs(target - x0) <= eps:
+                candidates.extend([p0, p1])
+            continue
+
+        if target < min(x0, x1) - eps or target > max(x0, x1) + eps:
+            continue
+
+        t = max(0.0, min(1.0, (target - x0) / (x1 - x0)))
+        candidates.append(p0 + (p1 - p0) * xy.new_tensor(t))
+
+    if candidates:
+        return max(candidates, key=lambda point: float(point[1].detach().cpu()))
+
+    y_range = float((xy[:, 1].max() - xy[:, 1].min()).detach().cpu())
+    top_band = max(y_range * 0.03, 1e-4)
+    max_y = xy[:, 1].max()
+    top_points = xy[(max_y - xy[:, 1]) <= top_band]
+    if len(top_points) == 0:
+        top_points = xy
+    distances = (top_points[:, 0] - target_x).abs()
+    return top_points[int(torch.argmin(distances))]
+
+
+def _top_edge_string_local_points(patch: Patch, n_per_segment: int = 96) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     pts = patch.sample_spline_local(n_per_segment).detach()
     xy = pts[:, :2]
     if len(xy) < 3:
         raise ValueError(f"Patch {patch.label!r} has too few outline points for string placement.")
 
     center = _polygon_centroid_xy(xy)
-    leftmost = xy[int(torch.argmin(xy[:, 0]))]
-    rightmost = xy[int(torch.argmax(xy[:, 0]))]
-    if torch.linalg.norm(leftmost - rightmost) <= 1e-5:
+    min_x = xy[:, 0].min()
+    max_x = xy[:, 0].max()
+    width = max_x - min_x
+    if float(width.detach().cpu()) <= 1e-5:
         raise ValueError(f"Patch {patch.label!r} is too narrow for stable string placement.")
 
-    left_anchor = 0.5 * (center + leftmost)
-    right_anchor = 0.5 * (center + rightmost)
+    left_anchor = _upper_boundary_point_at_x(xy, min_x + width * 0.25)
+    right_anchor = _upper_boundary_point_at_x(xy, min_x + width * 0.75)
+    if float(left_anchor[0].detach().cpu()) > float(right_anchor[0].detach().cpu()):
+        left_anchor, right_anchor = right_anchor, left_anchor
     return center, left_anchor, right_anchor
 
 
@@ -317,7 +353,7 @@ def add_strings_to_patches(
     for piece_idx, patch in enumerate(patches, start=1):
         piece_id = f"{id_prefix}{piece_idx:0{id_width}d}"
         connections: list[dict[str, Any]] = []
-        center_xy, left_xy, right_xy = _balanced_string_local_points(patch)
+        center_xy, left_xy, right_xy = _top_edge_string_local_points(patch)
         for connection_id, local_xy in zip(STRING_CONNECTION_IDS, (left_xy, right_xy)):
             local_point = torch.stack([
                 local_xy[0].to(device=patch.center.device, dtype=patch.center.dtype),
@@ -333,7 +369,7 @@ def add_strings_to_patches(
             connections.append({
                 "id": connection_id,
                 "pieceId": piece_id,
-                "placementMethod": "center_of_mass_to_extreme_midpoint",
+                "placementMethod": "upper_boundary_edge",
                 "pieceCenterOfMass": _xy_dict(center_xy),
                 "pieceLocalPoint": _xy_dict(local_xy),
                 "pieceWorldPoint": _xyz_dict(world_point),
