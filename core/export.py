@@ -193,7 +193,8 @@ def send_export_json_file(
     if headers:
         req_headers.update(headers)
 
-    body_bytes = EXPORT_JSON_PATH.read_bytes()
+    # body_bytes = EXPORT_JSON_PATH.read_bytes()
+    body_bytes = Path("exports/pieces2.json").read_bytes()
 
     req = request.Request(endpoint, data=body_bytes, headers=req_headers, method="POST")
 
