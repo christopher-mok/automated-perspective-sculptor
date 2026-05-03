@@ -16,6 +16,7 @@ from core.patch import ControlPoint, Patch
 EXPORT_JSON_PATH = Path("exports/pieces.json")
 EXPORT_GRID_SVG_PATH = Path("exports/grid.svg")
 EXPORT_PIECES_SVG_PATH = Path("exports/pieces.svg")
+EXPORT_PIECES_PNG_PATH = Path("exports/pieces.png")
 STRING_CONNECTION_IDS = ("left", "right")
 SCENE_UNIT_TO_INCH = 2.4
 INCH_TO_SCENE_UNIT = 1.0 / SCENE_UNIT_TO_INCH
@@ -607,6 +608,253 @@ def export_pieces_svg(
         body.append("</g>")
 
     return _write_text(Path(output_path), _svg_document(sheet_width, sheet_height, body))
+
+
+def _patch_fill_rgba(patch: Patch, alpha: int = 255) -> tuple[int, int, int, int]:
+    rgb = patch.albedo.detach().cpu().clamp(0.0, 1.0).numpy().tolist()
+    return (
+        max(0, min(255, int(round(rgb[0] * 255.0)))),
+        max(0, min(255, int(round(rgb[1] * 255.0)))),
+        max(0, min(255, int(round(rgb[2] * 255.0)))),
+        alpha,
+    )
+
+
+def _orthographic_view_basis(
+    azimuth_deg: float | None = None,
+    elevation_deg: float | None = None,
+) -> tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
+    import numpy as np
+
+    if azimuth_deg is None or elevation_deg is None:
+        return (
+            np.array([1.0, 0.0, 0.0], dtype=np.float32),
+            np.array([0.0, 1.0, 0.0], dtype=np.float32),
+            np.array([0.0, 0.0, -1.0], dtype=np.float32),
+        )
+
+    az = math.radians(azimuth_deg)
+    el = math.radians(elevation_deg)
+    eye_dir = np.array([
+        math.cos(el) * math.sin(az),
+        math.sin(el),
+        math.cos(el) * math.cos(az),
+    ], dtype=np.float32)
+    forward = -eye_dir / max(float(np.linalg.norm(eye_dir)), 1e-8)
+    world_up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+    right = np.cross(forward, world_up)
+    right = right / max(float(np.linalg.norm(right)), 1e-8)
+    up = np.cross(right, forward)
+    return right, up, forward
+
+
+def _flat_patch_mesh_for_png(
+    patch: Patch,
+    n_per_segment: int,
+    thickness: float = Patch.DEFAULT_THICKNESS,
+) -> tuple["np.ndarray", "np.ndarray"]:
+    import numpy as np
+
+    local = patch.sample_spline_local(n_per_segment).detach().cpu().numpy()
+    count = len(local)
+    half = thickness * 0.5
+    front = local.copy()
+    back = local.copy()
+    front[:, 2] = half
+    back[:, 2] = -half
+    front_centroid = front.mean(axis=0, keepdims=True)
+    back_centroid = back.mean(axis=0, keepdims=True)
+    verts = np.concatenate([front_centroid, front, back_centroid, back], axis=0).astype(np.float32)
+
+    back_center = count + 1
+    back_start = count + 2
+    faces: list[list[int]] = []
+    for idx in range(count):
+        nxt = (idx + 1) % count
+        fi = idx + 1
+        fj = nxt + 1
+        bi = back_start + idx
+        bj = back_start + nxt
+        faces.append([0, fj, fi])
+        faces.append([back_center, bi, bj])
+        faces.append([fi, bi, bj])
+        faces.append([fi, bj, fj])
+    return verts, np.array(faces, dtype=np.int32)
+
+
+def _project_patch_for_png(
+    patch: Patch,
+    *,
+    right: "np.ndarray",
+    up: "np.ndarray",
+    forward: "np.ndarray",
+    n_per_segment: int,
+) -> dict[str, Any]:
+    import numpy as np
+
+    verts, faces = _flat_patch_mesh_for_png(patch, n_per_segment)
+    projected = np.stack([
+        verts @ right,
+        verts @ up,
+        verts @ forward,
+    ], axis=1)
+    min_xy = projected[:, :2].min(axis=0)
+    max_xy = projected[:, :2].max(axis=0)
+    return {
+        "patch": patch,
+        "verts": verts,
+        "projected": projected,
+        "faces": faces,
+        "min_xy": min_xy,
+        "max_xy": max_xy,
+        "width": max(float(max_xy[0] - min_xy[0]), 1e-4),
+        "height": max(float(max_xy[1] - min_xy[1]), 1e-4),
+    }
+
+
+def _shade_face_rgba(
+    base: tuple[int, int, int, int],
+    verts: "np.ndarray",
+    face: "np.ndarray",
+) -> tuple[int, int, int, int]:
+    import numpy as np
+
+    tri = verts[face]
+    normal = np.cross(tri[1] - tri[0], tri[2] - tri[0])
+    length = float(np.linalg.norm(normal))
+    if length > 1e-8:
+        normal = normal / length
+    light = np.array([0.5, 1.0, 0.8], dtype=np.float32)
+    light = light / np.linalg.norm(light)
+    diff = max(float(np.dot(normal, light)), 0.0) * 0.7 + 0.3
+    return (
+        max(0, min(255, int(round(base[0] * diff)))),
+        max(0, min(255, int(round(base[1] * diff)))),
+        max(0, min(255, int(round(base[2] * diff)))),
+        base[3],
+    )
+
+
+def _rasterize_triangle(
+    pixels: "np.ndarray",
+    z_buffer: "np.ndarray",
+    xy: "np.ndarray",
+    z: "np.ndarray",
+    color: tuple[int, int, int, int],
+) -> None:
+    import numpy as np
+
+    height, width = z_buffer.shape
+    min_x = max(0, int(math.floor(float(xy[:, 0].min()))))
+    max_x = min(width - 1, int(math.ceil(float(xy[:, 0].max()))))
+    min_y = max(0, int(math.floor(float(xy[:, 1].min()))))
+    max_y = min(height - 1, int(math.ceil(float(xy[:, 1].max()))))
+    if min_x > max_x or min_y > max_y:
+        return
+
+    x0, y0 = xy[0]
+    x1, y1 = xy[1]
+    x2, y2 = xy[2]
+    denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+    if abs(float(denom)) <= 1e-8:
+        return
+
+    ys, xs = np.mgrid[min_y:max_y + 1, min_x:max_x + 1]
+    px = xs + 0.5
+    py = ys + 0.5
+    w0 = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) / denom
+    w1 = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / denom
+    w2 = 1.0 - w0 - w1
+    inside = (w0 >= 0.0) & (w1 >= 0.0) & (w2 >= 0.0)
+    if not bool(inside.any()):
+        return
+
+    depth = w0 * z[0] + w1 * z[1] + w2 * z[2]
+    target = z_buffer[min_y:max_y + 1, min_x:max_x + 1]
+    update = inside & (depth < target)
+    if not bool(update.any()):
+        return
+
+    target[update] = depth[update]
+    pixels[min_y:max_y + 1, min_x:max_x + 1][update] = color
+
+
+def export_pieces_png(
+    patches: list[Patch],
+    *,
+    output_path: str | Path = EXPORT_PIECES_PNG_PATH,
+    pixels_per_scene_unit: float = 240.0,
+    margin_scene_units: float = 0.2,
+    gap_scene_units: float = 0.25,
+    n_per_segment: int = 32,
+    supersample: int = 3,
+) -> Path:
+    """Render all pieces in one straight orthographic row with theta flattened."""
+    if not patches:
+        raise ValueError("No patches to export.")
+
+    import numpy as np
+    from PIL import Image
+
+    right, up, forward = _orthographic_view_basis()
+    infos: list[dict[str, Any]] = []
+    total_width_units = margin_scene_units * 2.0
+    max_height_units = 0.0
+    for patch in patches:
+        info = _project_patch_for_png(
+            patch,
+            right=right,
+            up=up,
+            forward=forward,
+            n_per_segment=n_per_segment,
+        )
+        infos.append(info)
+        total_width_units += float(info["width"])
+        max_height_units = max(max_height_units, float(info["height"]))
+
+    total_width_units += gap_scene_units * max(0, len(infos) - 1)
+    total_height_units = max_height_units + margin_scene_units * 2.0
+
+    ss = max(1, int(supersample))
+    scale_px = float(pixels_per_scene_unit) * ss
+    width_px = max(1, int(math.ceil(total_width_units * scale_px)))
+    height_px = max(1, int(math.ceil(total_height_units * scale_px)))
+
+    pixels = np.zeros((height_px, width_px, 4), dtype=np.uint8)
+    z_buffer = np.full((height_px, width_px), np.inf, dtype=np.float32)
+    cursor_x = margin_scene_units * scale_px
+    top_y = margin_scene_units * scale_px
+
+    for info in infos:
+        vertical_offset = top_y + (max_height_units - float(info["height"])) * 0.5 * scale_px
+        projected = info["projected"].copy()
+        projected[:, 0] = cursor_x + (projected[:, 0] - float(info["min_xy"][0])) * scale_px
+        projected[:, 1] = vertical_offset + (float(info["max_xy"][1]) - projected[:, 1]) * scale_px
+        base_color = _patch_fill_rgba(info["patch"])
+        face_order = sorted(
+            info["faces"],
+            key=lambda face: float(projected[face, 2].mean()),
+            reverse=True,
+        )
+        for face in face_order:
+            color = _shade_face_rgba(base_color, info["verts"], face)
+            _rasterize_triangle(
+                pixels,
+                z_buffer,
+                projected[face, :2],
+                projected[face, 2],
+                color,
+            )
+        cursor_x += (float(info["width"]) + gap_scene_units) * scale_px
+
+    image = Image.fromarray(pixels, mode="RGBA")
+    if ss > 1:
+        image = image.resize((math.ceil(width_px / ss), math.ceil(height_px / ss)), Image.Resampling.LANCZOS)
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path)
+    return path
 
 
 def _piece_control_point_to_model(cp: dict[str, Any], device: str) -> ControlPoint:
