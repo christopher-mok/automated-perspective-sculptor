@@ -606,6 +606,7 @@ class SRDSection(QGroupBox):
 
 class ExportSection(QGroupBox):
     export_requested = pyqtSignal()
+    import_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Export", parent)
@@ -625,7 +626,16 @@ class ExportSection(QGroupBox):
         self._export_btn.clicked.connect(self.export_requested.emit)
         layout.addWidget(self._export_btn)
 
-        note = QLabel("Initialize patches to export to exports/pieces.json.")
+        self._import_btn = QPushButton("Import pieces JSON")
+        self._import_btn.setStyleSheet(
+            "QPushButton { background: #2a6496; color: #fff; border-radius: 4px; padding: 6px; }"
+            "QPushButton:hover { background: #3276b1; }"
+            "QPushButton:pressed { background: #204d74; }"
+        )
+        self._import_btn.clicked.connect(self.import_requested.emit)
+        layout.addWidget(self._import_btn)
+
+        note = QLabel("Import previous designs or export current patches to exports/pieces.json.")
         note.setStyleSheet("color: #666; font-size: 11px; font-style: italic;")
         note.setWordWrap(True)
         layout.addWidget(note)

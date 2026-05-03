@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 from urllib import error, request
@@ -21,6 +22,18 @@ def _tensor_scalar(value: torch.Tensor) -> float:
 def _rgb_to_hex(rgb: list[float]) -> str:
     channels = [max(0, min(255, int(round(c * 255.0)))) for c in rgb[:3]]
     return f"#{channels[0]:02x}{channels[1]:02x}{channels[2]:02x}"
+
+
+def _hex_to_rgb(value: str) -> list[float]:
+    text = value.strip()
+    if text.startswith("#"):
+        text = text[1:]
+    if len(text) != 6:
+        raise ValueError(f"Expected #rrggbb colour, got {value!r}.")
+    return [
+        int(text[idx:idx + 2], 16) / 255.0
+        for idx in (0, 2, 4)
+    ]
 
 
 def _control_point_dict(
@@ -114,6 +127,84 @@ def build_export_payload(
     if hanging_plane_size is not None:
         payload["hangingPlaneSize"] = float(hanging_plane_size)
     return payload
+
+
+def _piece_control_point_to_model(cp: dict[str, Any], device: str) -> ControlPoint:
+    if "x" not in cp or "y" not in cp:
+        raise ValueError("Each control point must include x and y.")
+
+    handle_out = cp.get("handleOut") or {}
+    handle_x = float(handle_out.get("x", 0.0))
+    handle_y = float(handle_out.get("y", 0.0))
+    handle_scale = math.hypot(handle_x, handle_y)
+    handle_rotation = math.atan2(handle_y, handle_x) if handle_scale > 1e-8 else 0.0
+
+    return ControlPoint(
+        x=float(cp["x"]),
+        y=float(cp["y"]),
+        z=float(cp.get("z", 0.0)),
+        handle_scale=max(handle_scale, 1e-6),
+        handle_rotation=handle_rotation,
+        device=device,
+    )
+
+
+def piece_dict_to_patch(piece: dict[str, Any], *, device: str = "cpu") -> Patch:
+    """Build a Patch from one exported piece JSON object."""
+    position = piece.get("position")
+    if not isinstance(position, dict):
+        raise ValueError("Each piece must include a position object.")
+
+    control_points = piece.get("controlPoints")
+    if not isinstance(control_points, list) or len(control_points) != Patch.N_CONTROL_POINTS:
+        raise ValueError(
+            f"Each piece must include exactly {Patch.N_CONTROL_POINTS} controlPoints."
+        )
+
+    color = piece.get("color", "#ffffff")
+    if isinstance(color, str):
+        albedo = _hex_to_rgb(color)
+    elif isinstance(color, list):
+        albedo = [float(channel) for channel in color[:3]]
+    else:
+        albedo = [1.0, 1.0, 1.0]
+
+    return Patch(
+        control_points=[
+            _piece_control_point_to_model(cp, device)
+            for cp in control_points
+        ],
+        center=[
+            float(position["x"]),
+            float(position["y"]),
+            float(position["z"]),
+        ],
+        theta=float(piece.get("theta", 0.0)),
+        albedo=albedo,
+        device=device,
+        label=str(piece.get("id", "")),
+    )
+
+
+def patches_from_export_payload(payload: dict[str, Any], *, device: str = "cpu") -> list[Patch]:
+    """Build patches from a pieces.json-style export payload."""
+    pieces = payload.get("pieces")
+    if not isinstance(pieces, list):
+        raise ValueError("Import JSON must contain a pieces list.")
+    if not pieces:
+        raise ValueError("Import JSON does not contain any pieces.")
+    return [
+        piece_dict_to_patch(piece, device=device)
+        for piece in pieces
+    ]
+
+
+def import_patches_from_json(path: str | Path, *, device: str = "cpu") -> list[Patch]:
+    """Load patches from a previous pieces JSON export."""
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Import JSON root must be an object.")
+    return patches_from_export_payload(payload, device=device)
 
 
 def write_export_json(

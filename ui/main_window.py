@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMainWindow, QMessageBox, QSplitter
+from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QSplitter
 
 from scene.camera import Camera
 from scene.scene import Mesh, Scene
@@ -205,6 +205,7 @@ class MainWindow(QMainWindow):
         self._controls.optimization.palette_changed.connect(self._on_palette_changed)
         self._controls.optimization.reset_requested.connect(self._on_reset)
         self._controls.export.export_requested.connect(self._on_export_json)
+        self._controls.export.import_requested.connect(self._on_import_json)
         self._controls.patches.hanging_plane_size_changed.connect(
             self._on_hanging_plane_size_changed
         )
@@ -435,6 +436,43 @@ class MainWindow(QMainWindow):
                 f"API post failed status={post_result.get('status')}, "
                 f"body={post_result.get('body')}"
             )
+
+    def _on_import_json(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            QMessageBox.warning(self, "Import", "Stop optimization before importing a design.")
+            return
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import pieces JSON",
+            "exports",
+            "JSON files (*.json);;All files (*)",
+        )
+        if not path:
+            return
+
+        try:
+            from core.export import import_patches_from_json
+
+            self._patches = import_patches_from_json(
+                path,
+                device=self._controls.patches.device,
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Import failed", str(exc))
+            print(f"[Import] failed: {exc}")
+            return
+
+        self._viewport.set_patches(self._patches)
+        self._update_camera_previews_from_patches()
+        self._controls.srd.set_stats({"patches": len(self._patches)})
+        self._sync_export_enabled()
+        QMessageBox.information(
+            self,
+            "Import complete",
+            f"Loaded {len(self._patches)} patches from {path}",
+        )
+        print(f"[Import] loaded {len(self._patches)} patches from {path}")
 
     def _reset_state(self) -> None:
         self._worker = None
