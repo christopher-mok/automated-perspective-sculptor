@@ -17,6 +17,8 @@ _ORIGINAL_BOUNDS_SIZE = 5.0
 _HANGING_PLANE_Y = (_ORIGINAL_BOUNDS_SIZE * 0.5) + 1.0
 _HANGING_PLANE_FRAME_THICKNESS = 0.035
 _SCENE_CAMERA_FOV_DEG = 30.22  # 50mm equivalent on a 36x27mm 4:3 sensor.
+_STRING_DASH_LENGTH = 0.08
+_STRING_GAP_LENGTH = 0.05
 
 
 def _make_scene_cameras() -> list[Camera]:
@@ -93,6 +95,23 @@ def _make_hanging_plane_mesh(size: float) -> Mesh:
         color=(0.55, 0.62, 0.68),
         label="hanging_plane",
     )
+
+
+def _dotted_line_segments(start: np.ndarray, end: np.ndarray) -> list[np.ndarray]:
+    delta = end - start
+    length = float(np.linalg.norm(delta))
+    if length <= 1e-6:
+        return []
+    direction = delta / length
+    period = _STRING_DASH_LENGTH + _STRING_GAP_LENGTH
+    segments: list[np.ndarray] = []
+    cursor = 0.0
+    while cursor < length:
+        dash_end = min(cursor + _STRING_DASH_LENGTH, length)
+        segments.append(start + direction * cursor)
+        segments.append(start + direction * dash_end)
+        cursor += period
+    return segments
 
 
 class MainWindow(QMainWindow):
@@ -206,6 +225,7 @@ class MainWindow(QMainWindow):
         self._controls.optimization.reset_requested.connect(self._on_reset)
         self._controls.export.export_requested.connect(self._on_export_json)
         self._controls.export.import_requested.connect(self._on_import_json)
+        self._controls.export.strings_requested.connect(self._on_add_strings)
         self._controls.patches.hanging_plane_size_changed.connect(
             self._on_hanging_plane_size_changed
         )
@@ -251,6 +271,7 @@ class MainWindow(QMainWindow):
             return
 
         self._viewport.set_patches(self._patches)
+        self._update_string_lines()
         self._update_camera_previews_from_patches()
         self._controls.srd.set_stats({"patches": len(self._patches)})
         self._sync_export_enabled()
@@ -282,6 +303,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Run optimization", str(exc))
             return
         self._constrain_patches_to_hanging_plane()
+        self._clear_string_connections()
         self._viewport.set_patches(self._patches)
         self._update_camera_previews_from_patches()
 
@@ -375,9 +397,11 @@ class MainWindow(QMainWindow):
 
     def _on_hanging_plane_size_changed(self, size: float) -> None:
         self._update_hanging_plane_mesh()
+        self._clear_string_connections()
         self._constrain_patches_to_hanging_plane()
         if self._patches:
             self._viewport.set_patches(self._patches)
+            self._update_string_lines()
             self._update_camera_previews_from_patches()
         print(f"[Hanging plane] size={size:.1f}, y={_HANGING_PLANE_Y:.1f}")
 
@@ -437,6 +461,37 @@ class MainWindow(QMainWindow):
                 f"body={post_result.get('body')}"
             )
 
+    def _on_add_strings(self) -> None:
+        if not self._patches:
+            QMessageBox.warning(self, "Add strings", "Initialize or import patches first.")
+            return
+        if self._worker is not None and self._worker.isRunning():
+            QMessageBox.warning(self, "Add strings", "Stop optimization before adding strings.")
+            return
+
+        try:
+            from core.export import add_strings_to_patches
+
+            count = add_strings_to_patches(
+                self._patches,
+                hanging_plane_y=_HANGING_PLANE_Y,
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Add strings failed", str(exc))
+            print(f"[Strings] failed: {exc}")
+            return
+
+        QMessageBox.information(
+            self,
+            "Strings added",
+            f"Added {count} string connections for {len(self._patches)} pieces.",
+        )
+        self._update_string_lines()
+        print(
+            f"[Strings] added {count} connections for {len(self._patches)} pieces; "
+            f"hanging_plane_y={_HANGING_PLANE_Y:.3f}"
+        )
+
     def _on_import_json(self) -> None:
         if self._worker is not None and self._worker.isRunning():
             QMessageBox.warning(self, "Import", "Stop optimization before importing a design.")
@@ -464,6 +519,7 @@ class MainWindow(QMainWindow):
             return
 
         self._viewport.set_patches(self._patches)
+        self._update_string_lines()
         self._update_camera_previews_from_patches()
         self._controls.srd.set_stats({"patches": len(self._patches)})
         self._sync_export_enabled()
@@ -499,6 +555,35 @@ class MainWindow(QMainWindow):
         self._viewport.set_static_meshes([
             _make_hanging_plane_mesh(self._controls.patches.hanging_plane_size)
         ])
+
+    def _clear_string_connections(self) -> None:
+        for patch in self._patches:
+            if hasattr(patch, "string_connections"):
+                delattr(patch, "string_connections")
+        self._update_string_lines()
+
+    def _update_string_lines(self) -> None:
+        segments: list[np.ndarray] = []
+        for patch in self._patches:
+            for connection in getattr(patch, "string_connections", []):
+                piece_point = connection.get("pieceWorldPoint")
+                board_point = connection.get("boardPoint")
+                if not isinstance(piece_point, dict) or not isinstance(board_point, dict):
+                    continue
+                start = np.array(
+                    [piece_point["x"], piece_point["y"], piece_point["z"]],
+                    dtype=np.float32,
+                )
+                end = np.array(
+                    [board_point["x"], board_point["y"], board_point["z"]],
+                    dtype=np.float32,
+                )
+                segments.extend(_dotted_line_segments(start, end))
+        if segments:
+            vertices = np.array(segments, dtype=np.float32)
+        else:
+            vertices = np.empty((0, 3), dtype=np.float32)
+        self._viewport.set_string_segments(vertices)
 
     def _constrain_patches_to_hanging_plane(self) -> None:
         if not self._patches:
@@ -537,7 +622,8 @@ class MainWindow(QMainWindow):
             print(f"[Optimization] finished: loss={loss:.6f}")
 
     def _sync_export_enabled(self) -> None:
-        self._controls.export.set_enabled(bool(self._patches))
+        optimizing = self._worker is not None and self._worker.isRunning()
+        self._controls.export.set_enabled(bool(self._patches) and not optimizing)
 
     def closeEvent(self, event) -> None:
         if self._worker is not None and self._worker.isRunning():

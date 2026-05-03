@@ -391,9 +391,11 @@ class Viewport(QOpenGLWidget):
         self._axis_x = _GPULines()
         self._axis_y = _GPULines()
         self._axis_z = _GPULines()
+        self._string_lines = _GPULines()
         self._frustum_gpu: list[_GPULines] = []
         self._dynamic_meshes: list["Mesh"] = []
         self._static_meshes: list["Mesh"] = []
+        self._string_vertices = np.empty((0, 3), dtype=np.float32)
         self._mesh_gpu: dict[int, _GPUMesh] = {}   # id(Mesh) → _GPUMesh
 
         # Projection
@@ -443,9 +445,20 @@ class Viewport(QOpenGLWidget):
         self._sync_scene_mesh_list()
         self.update()
 
+    def set_string_segments(self, vertices: np.ndarray) -> None:
+        """Replace viewport-only dotted string line segments."""
+        data = np.asarray(vertices, dtype=np.float32).reshape((-1, 3))
+        self._string_vertices = data
+        if self.context() is not None and self.isValid():
+            self.makeCurrent()
+            self._string_lines.upload(data)
+            self.doneCurrent()
+        self.update()
+
     def reset(self) -> None:
         """Clear rendered meshes and restore the default camera framing."""
         self._dynamic_meshes.clear()
+        self.set_string_segments(np.empty((0, 3), dtype=np.float32))
         self._sync_scene_mesh_list()
         self.frame_scene()
 
@@ -481,6 +494,7 @@ class Viewport(QOpenGLWidget):
 
         # Scene camera frustums
         self._upload_frustums()
+        self._string_lines.upload(self._string_vertices)
 
     def resizeGL(self, w: int, h: int) -> None:
         glViewport(0, 0, w, h)
@@ -520,6 +534,8 @@ class Viewport(QOpenGLWidget):
             if i < len(self._scene.cameras):
                 cam = self._scene.cameras[i]
                 draw_lines(gpu, cam.color, vp)
+
+        draw_lines(self._string_lines, (0.88, 0.88, 0.78), vp)
 
         # --- Mesh program -----------------------------------------------
         glUseProgram(self._mesh_prog)
