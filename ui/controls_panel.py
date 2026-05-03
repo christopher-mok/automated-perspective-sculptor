@@ -606,6 +606,8 @@ class SRDSection(QGroupBox):
 
 class ExportSection(QGroupBox):
     export_requested = pyqtSignal()
+    import_requested = pyqtSignal()
+    strings_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Export", parent)
@@ -625,13 +627,33 @@ class ExportSection(QGroupBox):
         self._export_btn.clicked.connect(self.export_requested.emit)
         layout.addWidget(self._export_btn)
 
-        note = QLabel("Initialize patches to export to exports/pieces.json.")
+        self._import_btn = QPushButton("Import pieces JSON")
+        self._import_btn.setStyleSheet(
+            "QPushButton { background: #2a6496; color: #fff; border-radius: 4px; padding: 6px; }"
+            "QPushButton:hover { background: #3276b1; }"
+            "QPushButton:pressed { background: #204d74; }"
+        )
+        self._import_btn.clicked.connect(self.import_requested.emit)
+        layout.addWidget(self._import_btn)
+
+        self._strings_btn = QPushButton("Add strings")
+        self._strings_btn.setEnabled(False)
+        self._strings_btn.setStyleSheet(
+            "QPushButton { background: #3a3a3a; color: #777; border-radius: 4px; padding: 6px; }"
+            "QPushButton:enabled { background: #49633a; color: #fff; }"
+            "QPushButton:enabled:hover { background: #5b7b48; }"
+        )
+        self._strings_btn.clicked.connect(self.strings_requested.emit)
+        layout.addWidget(self._strings_btn)
+
+        note = QLabel("Import previous designs or export current patches to exports/pieces.json.")
         note.setStyleSheet("color: #666; font-size: 11px; font-style: italic;")
         note.setWordWrap(True)
         layout.addWidget(note)
 
     def set_enabled(self, enabled: bool) -> None:
         self._export_btn.setEnabled(enabled)
+        self._strings_btn.setEnabled(enabled)
 
 
 # ---------------------------------------------------------------------------

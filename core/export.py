@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 from urllib import error, request
@@ -12,6 +13,7 @@ import torch
 from core.patch import ControlPoint, Patch
 
 EXPORT_JSON_PATH = Path("exports/pieces.json")
+STRING_CONNECTION_IDS = ("left", "right")
 
 
 def _tensor_scalar(value: torch.Tensor) -> float:
@@ -21,6 +23,18 @@ def _tensor_scalar(value: torch.Tensor) -> float:
 def _rgb_to_hex(rgb: list[float]) -> str:
     channels = [max(0, min(255, int(round(c * 255.0)))) for c in rgb[:3]]
     return f"#{channels[0]:02x}{channels[1]:02x}{channels[2]:02x}"
+
+
+def _hex_to_rgb(value: str) -> list[float]:
+    text = value.strip()
+    if text.startswith("#"):
+        text = text[1:]
+    if len(text) != 6:
+        raise ValueError(f"Expected #rrggbb colour, got {value!r}.")
+    return [
+        int(text[idx:idx + 2], 16) / 255.0
+        for idx in (0, 2, 4)
+    ]
 
 
 def _control_point_dict(
@@ -47,6 +61,29 @@ def _control_point_dict(
     }
 
 
+def _xyz_dict(point: torch.Tensor | list[float] | tuple[float, float, float]) -> dict[str, float]:
+    if isinstance(point, torch.Tensor):
+        values = point.detach().cpu().numpy().tolist()
+    else:
+        values = list(point)
+    return {
+        "x": float(values[0]),
+        "y": float(values[1]),
+        "z": float(values[2]),
+    }
+
+
+def _xy_dict(point: torch.Tensor | list[float] | tuple[float, float]) -> dict[str, float]:
+    if isinstance(point, torch.Tensor):
+        values = point.detach().cpu().numpy().tolist()
+    else:
+        values = list(point)
+    return {
+        "x": float(values[0]),
+        "y": float(values[1]),
+    }
+
+
 def _export_anchor_xy(patch: Patch) -> torch.Tensor:
     points = [
         torch.stack([cp.x, cp.y])
@@ -64,6 +101,37 @@ def _anchored_export_center(patch: Patch, anchor_xy: torch.Tensor) -> torch.Tens
     return (patch.rotation_matrix() @ local_anchor) + patch.center
 
 
+def _patch_string_connections(patch: Patch) -> list[dict[str, Any]]:
+    raw_connections = getattr(patch, "string_connections", None)
+    if not raw_connections:
+        return []
+    return list(raw_connections)
+
+
+def _piece_string_connection_dict(
+    connection: dict[str, Any],
+    *,
+    anchor_xy: torch.Tensor,
+) -> dict[str, Any]:
+    local_point = connection.get("pieceLocalPoint", {})
+    local_xy = torch.tensor(
+        [
+            float(local_point.get("x", 0.0)),
+            float(local_point.get("y", 0.0)),
+        ],
+        dtype=anchor_xy.dtype,
+    ) - anchor_xy.detach().cpu()
+    return {
+        "id": str(connection["id"]),
+        "pieceLocalPoint": _xy_dict(local_xy),
+        "pieceWorldPoint": connection["pieceWorldPoint"],
+        "boardConnectionId": str(connection["boardConnectionId"]),
+        "boardPoint": connection["boardPoint"],
+        "stringId": str(connection["stringId"]),
+        "length": float(connection["length"]),
+    }
+
+
 def patch_to_piece_dict(
     patch: Patch,
     piece_id: str,
@@ -73,7 +141,7 @@ def patch_to_piece_dict(
     anchor_xy = _export_anchor_xy(patch)
     center = _anchored_export_center(patch, anchor_xy).detach().cpu().numpy()
     color = patch.albedo.detach().cpu().clamp(0.0, 1.0).numpy().tolist()
-    return {
+    piece = {
         "id": piece_id,
         "position": {
             "x": float(center[0]),
@@ -88,6 +156,29 @@ def patch_to_piece_dict(
             for cp in patch.control_points
         ],
     }
+    string_connections = [
+        _piece_string_connection_dict(connection, anchor_xy=anchor_xy)
+        for connection in _patch_string_connections(patch)
+    ]
+    if string_connections:
+        piece["stringConnections"] = string_connections
+    return piece
+
+
+def _payload_string_mappings(patches: list[Patch], piece_ids: list[str]) -> list[dict[str, Any]]:
+    strings: list[dict[str, Any]] = []
+    for patch, piece_id in zip(patches, piece_ids):
+        for connection in _patch_string_connections(patch):
+            strings.append({
+                "id": str(connection["stringId"]),
+                "pieceId": piece_id,
+                "pieceConnectionId": str(connection["id"]),
+                "pieceWorldPoint": connection["pieceWorldPoint"],
+                "boardConnectionId": str(connection["boardConnectionId"]),
+                "boardPoint": connection["boardPoint"],
+                "length": float(connection["length"]),
+            })
+    return strings
 
 
 def build_export_payload(
@@ -99,13 +190,17 @@ def build_export_payload(
     id_prefix: str = "P",
     id_width: int = 2,
 ) -> dict[str, Any]:
+    piece_ids = [
+        f"{id_prefix}{idx:0{id_width}d}"
+        for idx in range(1, len(patches) + 1)
+    ]
     pieces = [
         patch_to_piece_dict(
             patch,
-            f"{id_prefix}{idx:0{id_width}d}",
+            piece_id,
             piece_scale=piece_scale,
         )
-        for idx, patch in enumerate(patches, start=1)
+        for patch, piece_id in zip(patches, piece_ids)
     ]
     payload: dict[str, Any] = {
         "scale": float(scale),
@@ -113,7 +208,183 @@ def build_export_payload(
     }
     if hanging_plane_size is not None:
         payload["hangingPlaneSize"] = float(hanging_plane_size)
+    string_mappings = _payload_string_mappings(patches, piece_ids)
+    if string_mappings:
+        payload["strings"] = string_mappings
+        payload["hangingBoardConnections"] = [
+            {
+                "id": mapping["boardConnectionId"],
+                "point": mapping["boardPoint"],
+                "stringId": mapping["id"],
+                "pieceId": mapping["pieceId"],
+                "pieceConnectionId": mapping["pieceConnectionId"],
+            }
+            for mapping in string_mappings
+        ]
     return payload
+
+
+def _top_string_local_points(patch: Patch, n_per_segment: int = 32) -> list[torch.Tensor]:
+    pts = patch.sample_spline_local(n_per_segment).detach()
+    xy = pts[:, :2]
+    min_y = xy[:, 1].min()
+    max_y = xy[:, 1].max()
+    height = max_y - min_y
+    if float(height) <= 1e-6:
+        raise ValueError(f"Patch {patch.label!r} is too flat vertically for string placement.")
+
+    upper_cutoff = max_y - height * 0.20
+    candidates = xy[xy[:, 1] >= upper_cutoff]
+    if len(candidates) < 2:
+        candidates = xy
+
+    left_idx = int(torch.argmin(candidates[:, 0]))
+    right_idx = int(torch.argmax(candidates[:, 0]))
+    left = candidates[left_idx]
+    right = candidates[right_idx]
+    if torch.linalg.norm(left - right) <= 1e-5:
+        sorted_by_y = xy[torch.argsort(xy[:, 1], descending=True)]
+        left = sorted_by_y[0]
+        for candidate in sorted_by_y[1:]:
+            if torch.linalg.norm(candidate - left) > 1e-5:
+                right = candidate
+                break
+    if float(left[0]) > float(right[0]):
+        left, right = right, left
+    return [left, right]
+
+
+def add_strings_to_patches(
+    patches: list[Patch],
+    *,
+    hanging_plane_y: float,
+    id_prefix: str = "P",
+    id_width: int = 2,
+) -> int:
+    """Attach two vertical hanging strings to each current patch."""
+    total = 0
+    for piece_idx, patch in enumerate(patches, start=1):
+        piece_id = f"{id_prefix}{piece_idx:0{id_width}d}"
+        connections: list[dict[str, Any]] = []
+        for connection_id, local_xy in zip(STRING_CONNECTION_IDS, _top_string_local_points(patch)):
+            local_point = torch.stack([
+                local_xy[0].to(device=patch.center.device, dtype=patch.center.dtype),
+                local_xy[1].to(device=patch.center.device, dtype=patch.center.dtype),
+                torch.zeros((), device=patch.center.device, dtype=patch.center.dtype),
+            ])
+            world_point = patch.local_to_world(local_point.unsqueeze(0))[0]
+            board_point = world_point.detach().clone()
+            board_point[1] = board_point.new_tensor(float(hanging_plane_y))
+            length = abs(float(board_point[1].detach().cpu()) - float(world_point[1].detach().cpu()))
+            string_id = f"S{piece_idx:0{id_width}d}_{connection_id}"
+            board_connection_id = f"B{piece_idx:0{id_width}d}_{connection_id}"
+            connections.append({
+                "id": connection_id,
+                "pieceId": piece_id,
+                "pieceLocalPoint": _xy_dict(local_xy),
+                "pieceWorldPoint": _xyz_dict(world_point),
+                "boardConnectionId": board_connection_id,
+                "boardPoint": _xyz_dict(board_point),
+                "stringId": string_id,
+                "length": length,
+            })
+        patch.string_connections = connections
+        total += len(connections)
+    return total
+
+
+def _piece_control_point_to_model(cp: dict[str, Any], device: str) -> ControlPoint:
+    if "x" not in cp or "y" not in cp:
+        raise ValueError("Each control point must include x and y.")
+
+    handle_out = cp.get("handleOut") or {}
+    handle_x = float(handle_out.get("x", 0.0))
+    handle_y = float(handle_out.get("y", 0.0))
+    handle_scale = math.hypot(handle_x, handle_y)
+    handle_rotation = math.atan2(handle_y, handle_x) if handle_scale > 1e-8 else 0.0
+
+    return ControlPoint(
+        x=float(cp["x"]),
+        y=float(cp["y"]),
+        z=float(cp.get("z", 0.0)),
+        handle_scale=max(handle_scale, 1e-6),
+        handle_rotation=handle_rotation,
+        device=device,
+    )
+
+
+def piece_dict_to_patch(piece: dict[str, Any], *, device: str = "cpu") -> Patch:
+    """Build a Patch from one exported piece JSON object."""
+    position = piece.get("position")
+    if not isinstance(position, dict):
+        raise ValueError("Each piece must include a position object.")
+
+    control_points = piece.get("controlPoints")
+    if not isinstance(control_points, list) or len(control_points) != Patch.N_CONTROL_POINTS:
+        raise ValueError(
+            f"Each piece must include exactly {Patch.N_CONTROL_POINTS} controlPoints."
+        )
+
+    color = piece.get("color", "#ffffff")
+    if isinstance(color, str):
+        albedo = _hex_to_rgb(color)
+    elif isinstance(color, list):
+        albedo = [float(channel) for channel in color[:3]]
+    else:
+        albedo = [1.0, 1.0, 1.0]
+
+    patch = Patch(
+        control_points=[
+            _piece_control_point_to_model(cp, device)
+            for cp in control_points
+        ],
+        center=[
+            float(position["x"]),
+            float(position["y"]),
+            float(position["z"]),
+        ],
+        theta=float(piece.get("theta", 0.0)),
+        albedo=albedo,
+        device=device,
+        label=str(piece.get("id", "")),
+    )
+    string_connections = piece.get("stringConnections")
+    if isinstance(string_connections, list):
+        patch.string_connections = [
+            {
+                "id": str(connection.get("id", "")),
+                "pieceId": str(piece.get("id", "")),
+                "pieceLocalPoint": connection.get("pieceLocalPoint", {}),
+                "pieceWorldPoint": connection.get("pieceWorldPoint", {}),
+                "boardConnectionId": str(connection.get("boardConnectionId", "")),
+                "boardPoint": connection.get("boardPoint", {}),
+                "stringId": str(connection.get("stringId", "")),
+                "length": float(connection.get("length", 0.0)),
+            }
+            for connection in string_connections
+        ]
+    return patch
+
+
+def patches_from_export_payload(payload: dict[str, Any], *, device: str = "cpu") -> list[Patch]:
+    """Build patches from a pieces.json-style export payload."""
+    pieces = payload.get("pieces")
+    if not isinstance(pieces, list):
+        raise ValueError("Import JSON must contain a pieces list.")
+    if not pieces:
+        raise ValueError("Import JSON does not contain any pieces.")
+    return [
+        piece_dict_to_patch(piece, device=device)
+        for piece in pieces
+    ]
+
+
+def import_patches_from_json(path: str | Path, *, device: str = "cpu") -> list[Patch]:
+    """Load patches from a previous pieces JSON export."""
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Import JSON root must be an object.")
+    return patches_from_export_payload(payload, device=device)
 
 
 def write_export_json(
