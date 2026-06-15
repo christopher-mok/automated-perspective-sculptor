@@ -520,6 +520,9 @@ class SceneOptimizer:
                 "srd_accepted": float(stats.accepted),
             })
             metrics["tiny_patches_deleted"] = float(stats.deleted)
+        metrics["self_intersections_prevented"] = float(
+            sum(getattr(patch, "self_intersect_counter", 0) for patch in self.patches)
+        )
         return metrics
 
     def _smallest_patch_area(self) -> float:
@@ -528,6 +531,7 @@ class SceneOptimizer:
         return min(float(patch.compute_area().detach().cpu()) for patch in self.patches)
 
     def _continuous_step_with_optimizer(self, optimizer: torch.optim.Optimizer) -> dict[str, float]:
+        valid_shape_states = self._capture_patch_shape_states()
         optimizer.zero_grad(set_to_none=True)
         render1, render2 = self.renderer.render_both(
             self.patches,
@@ -539,7 +543,7 @@ class SceneOptimizer:
         loss.backward()
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
-        self._post_step_constraints()
+        self._post_step_constraints(valid_shape_states, optimizer)
         return self._metrics_from_components(loss, components)
 
     def _metrics_from_components(
@@ -637,7 +641,38 @@ class SceneOptimizer:
             "camera_bounds": camera_bounds,
         }
 
-    def _post_step_constraints(self) -> None:
+    def _capture_patch_shape_states(self) -> dict[int, list[torch.Tensor]]:
+        """Snapshot local outline parameters for hard-constraint rollback."""
+        return {
+            id(patch): [
+                value.detach().clone()
+                for cp in patch.control_points
+                for value in (cp.x, cp.y, cp.handle_scale, cp.handle_rotation)
+            ]
+            for patch in self.patches
+        }
+
+    @staticmethod
+    def _restore_patch_shape(
+        patch: "Patch",
+        state: list[torch.Tensor],
+        optimizer: torch.optim.Optimizer | None,
+    ) -> None:
+        parameters = [
+            value
+            for cp in patch.control_points
+            for value in (cp.x, cp.y, cp.handle_scale, cp.handle_rotation)
+        ]
+        for parameter, saved in zip(parameters, state):
+            parameter.copy_(saved)
+            if optimizer is not None:
+                optimizer.state.pop(parameter, None)
+
+    def _post_step_constraints(
+        self,
+        valid_shape_states: dict[int, list[torch.Tensor]] | None = None,
+        optimizer: torch.optim.Optimizer | None = None,
+    ) -> None:
         with torch.no_grad():
             half_plane = max(float(self.hanging_plane_size) * 0.5, 1e-4)
             for patch in self.patches:
@@ -656,9 +691,44 @@ class SceneOptimizer:
                     cp.handle_scale.data = torch.nan_to_num(cp.handle_scale.data, nan=0.01).clamp(0.01, 2.0)
                     cp.handle_rotation.data = torch.nan_to_num(cp.handle_rotation.data, nan=0.0)
                 constrain_patch_to_square_xz_bounds(patch, half_plane)
+                if patch.is_self_intersecting():
+                    saved_shape = (
+                        valid_shape_states.get(id(patch))
+                        if valid_shape_states is not None else None
+                    )
+                    if saved_shape is None:
+                        raise ValueError(
+                            f"Patch {patch.label!r} has a self-intersecting Bezier outline."
+                        )
+                    self._restore_patch_shape(patch, saved_shape, optimizer)
+                    patch.self_intersect_counter = (
+                        int(getattr(patch, "self_intersect_counter", 0)) + 1
+                    )
 
     def mesh_snapshot(self, n_per_segment: int = 20) -> list["Mesh"]:
         return [p.to_mesh(n_per_segment=n_per_segment) for p in self.patches]
+
+    def evaluate_snapshot(
+        self,
+    ) -> tuple[dict[str, float], torch.Tensor, torch.Tensor]:
+        """Evaluate and return detached final renders without changing parameters."""
+        with torch.no_grad():
+            render1, render2 = self.renderer.render_both(
+                self.patches,
+                self.camera1,
+                self.camera2,
+                self.resolution,
+            )
+            loss, components = self._loss_from_renders(
+                render1,
+                render2,
+                self.patches,
+            )
+        return (
+            self._metrics_from_components(loss, components),
+            render1.detach().cpu(),
+            render2.detach().cpu(),
+        )
 
     def run(self, n_steps: int = 500) -> Iterator[tuple[int, dict[str, float]]]:
         for step_idx in range(1, n_steps + 1):

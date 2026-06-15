@@ -496,8 +496,27 @@ class OptimizationSection(QGroupBox):
             widget.setEnabled(not running)
         self._sds_input.setEnabled((not running) and "SDS" in self._loss_combo.currentText())
 
+    def set_benchmark_running(self, running: bool) -> None:
+        self._run_btn.setEnabled(not running)
+        self._run_btn.setText("Run optimization")
+        self._pause_btn.setEnabled(False)
+        self._reset_btn.setEnabled(not running)
+        for widget in (
+            self._loss_combo,
+            self._lr_slider,
+            self._run_mode_combo,
+            self._steps_slider,
+            self._threshold_slider,
+            self._palette_input,
+        ):
+            widget.setEnabled(not running)
+        self._sds_input.setEnabled(
+            (not running) and "SDS" in self._loss_combo.currentText()
+        )
+
     def reset_controls(self) -> None:
         self.set_running(False)
+        self._reset_btn.setEnabled(True)
         self.reset_progress()
 
     def reset_progress(self) -> None:
@@ -509,6 +528,63 @@ class OptimizationSection(QGroupBox):
         total = self._steps_slider.value()
         self._progress_bar.setValue(min(step, total))
         self._progress_bar.setFormat(f"{min(step, total)} / {total}")
+
+
+# ---------------------------------------------------------------------------
+# Benchmark section
+# ---------------------------------------------------------------------------
+
+
+class BenchmarkSection(QGroupBox):
+    run_requested = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("Benchmark", parent)
+        self.setStyleSheet(_SECTION_STYLE)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 14, 10, 10)
+        layout.setSpacing(8)
+
+        self._srd_enabled = QCheckBox("Use stochastic rewrite descent")
+        self._srd_enabled.setChecked(True)
+        self._srd_enabled.setStyleSheet(_LABEL_STYLE)
+        layout.addWidget(self._srd_enabled)
+
+        self._run_btn = QPushButton("Run benchmark")
+        self._run_btn.setStyleSheet(
+            "QPushButton { background: #67522a; color: #fff; border-radius: 4px; padding: 6px; }"
+            "QPushButton:hover { background: #806735; }"
+            "QPushButton:pressed { background: #4f3e20; }"
+        )
+        self._run_btn.clicked.connect(self.run_requested.emit)
+        layout.addWidget(self._run_btn)
+
+        self._status = QLabel(
+            "Runs 3 trials per pair at 3000 steps and a 3.0e-3 learning rate."
+        )
+        self._status.setStyleSheet("color: #777; font-size: 11px;")
+        self._status.setWordWrap(True)
+        layout.addWidget(self._status)
+
+    def set_running(self, running: bool) -> None:
+        self._run_btn.setEnabled(not running)
+        self._srd_enabled.setEnabled(not running)
+        if running:
+            self._run_btn.setText("Running benchmark...")
+        else:
+            self._run_btn.setText("Run benchmark")
+
+    def set_available(self, available: bool) -> None:
+        self._run_btn.setEnabled(available)
+        self._srd_enabled.setEnabled(available)
+
+    def set_status(self, text: str) -> None:
+        self._status.setText(text)
+
+    @property
+    def use_srd(self) -> bool:
+        return self._srd_enabled.isChecked()
 
 
 # ---------------------------------------------------------------------------
@@ -926,6 +1002,9 @@ class ControlsPanel(QWidget):
 
         self.optimization = OptimizationSection(container)
         layout.addWidget(self.optimization)
+
+        self.benchmark = BenchmarkSection(container)
+        layout.addWidget(self.benchmark)
 
         self.srd = SRDSection(container)
         layout.addWidget(self.srd)

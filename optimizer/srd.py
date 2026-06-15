@@ -289,6 +289,8 @@ class StochasticRewriteDescent:
             return True
         if any(float(cp.handle_scale.detach().cpu()) <= 0.0 for cp in patch.control_points):
             return True
+        if patch.is_self_intersecting():
+            return True
         with torch.no_grad():
             _, components = model._loss_from_renders(
                 *model.renderer.render_both(
@@ -353,6 +355,7 @@ class StochasticRewriteDescent:
 
             n_steps = self._rewrite_eval_steps(rewrite)
             for _ in range(n_steps):
+                valid_shape_states = model._capture_patch_shape_states()
                 model.optim.zero_grad(set_to_none=True)
                 render1, render2 = model.renderer.render_both(
                     model.patches,
@@ -364,7 +367,7 @@ class StochasticRewriteDescent:
                 loss.backward()
                 model.optim.step()
                 model.optim.zero_grad(set_to_none=True)
-                model._post_step_constraints()
+                model._post_step_constraints(valid_shape_states, model.optim)
 
             with torch.no_grad():
                 render1_new, render2_new = model.renderer.render_both(
@@ -543,6 +546,9 @@ class StochasticRewriteDescent:
                 return
             patch = model.patches.pop(rewrite.patch_index)
             child_a, child_b = patch.split_down_middle(creation_step=current_step)
+            if child_a.is_self_intersecting() or child_b.is_self_intersecting():
+                model.patches.insert(rewrite.patch_index, patch)
+                return
             model.patches.extend([child_a, child_b])
             rewrite.applied_index = rewrite.patch_index
             if not tentative:
@@ -558,6 +564,8 @@ class StochasticRewriteDescent:
 
         if rewrite.kind == "restore" and rewrite.patch_state is not None:
             patch = Patch.from_dict(copy.deepcopy(rewrite.patch_state), device=model.device)
+            if patch.is_self_intersecting():
+                return
             patch.creation_step = current_step
             model.patches.append(patch)
             rewrite.applied_index = len(model.patches) - 1

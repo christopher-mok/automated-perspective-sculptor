@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QSplitter
@@ -19,6 +21,16 @@ _HANGING_PLANE_FRAME_THICKNESS = 0.035
 _SCENE_CAMERA_FOV_DEG = 30.22  # 50mm equivalent on a 36x27mm 4:3 sensor.
 _STRING_DASH_LENGTH = 0.08
 _STRING_GAP_LENGTH = 0.05
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_BENCHMARK_PAIRS = (
+    ("circle_triangle", "circle.png", "triangle.jpg"),
+    ("circle_horse", "circle.png", "horse.png"),
+    ("cat_rat", "cat.png", "rat.png"),
+    ("bird_triangle", "bird.png", "triangle.jpg"),
+)
+_BENCHMARK_TRIAL_SEEDS = (0, 1, 2)
+_BENCHMARK_STEPS = 3000
+_BENCHMARK_LEARNING_RATE = 3.0e-3
 
 
 def _make_scene_cameras() -> list[Camera]:
@@ -194,6 +206,8 @@ class MainWindow(QMainWindow):
         self._target1_img: np.ndarray | None = None  # uint8 (H,W,4), padded RGBA
         self._target2_img: np.ndarray | None = None
         self._worker = None
+        self._benchmark_worker = None
+        self._benchmark_active = False
         self._optimization_run_until_convergence = False
         self._reset_after_worker_stops = False
 
@@ -220,6 +234,7 @@ class MainWindow(QMainWindow):
         self._image_panel.view2_loaded.connect(self._on_view2_loaded)
         self._controls.patches.initialize_requested.connect(self._on_initialize)
         self._controls.optimization.run_requested.connect(self._on_run_optimization)
+        self._controls.benchmark.run_requested.connect(self._on_run_benchmark)
         self._controls.optimization.pause_toggled.connect(self._on_pause_optimization)
         self._controls.optimization.palette_changed.connect(self._on_palette_changed)
         self._controls.optimization.reset_requested.connect(self._on_reset)
@@ -284,6 +299,8 @@ class MainWindow(QMainWindow):
         print(f"[Initialize patches] {len(self._patches)} patches ({mode}, {device})")
 
     def _on_run_optimization(self) -> None:
+        if self._benchmark_active:
+            return
         if not self._patches:
             QMessageBox.warning(self, "Run optimization", "Initialize patches first.")
             return
@@ -352,6 +369,126 @@ class MainWindow(QMainWindow):
                 f"[Optimization] started: steps={opt.n_steps}, lr={opt.learning_rate:.3e}, "
                 f"palette={opt.palette!r}, targets=mask"
             )
+
+    def _on_run_benchmark(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            return
+        if self._benchmark_worker is not None and self._benchmark_worker.isRunning():
+            return
+
+        image_dir = _PROJECT_ROOT / "images"
+        image_pairs = [
+            (label, image_dir / first, image_dir / second)
+            for label, first, second in _BENCHMARK_PAIRS
+        ]
+        missing = [
+            str(path)
+            for _label, first, second in image_pairs
+            for path in (first, second)
+            if not path.is_file()
+        ]
+        if missing:
+            QMessageBox.warning(
+                self,
+                "Run benchmark",
+                "Missing benchmark image(s):\n" + "\n".join(missing),
+            )
+            return
+
+        from ui.worker import BenchmarkWorker
+
+        opt = self._controls.optimization
+        srd_config = self._controls.srd.config
+        srd_config["enabled"] = self._controls.benchmark.use_srd
+        self._benchmark_worker = BenchmarkWorker(
+            cameras=self._scene.cameras,
+            image_pairs=image_pairs,
+            output_dir=_PROJECT_ROOT / "benchmark",
+            n_patches=self._controls.patches.n_patches,
+            init_mode=self._controls.patches.init_mode,
+            sam_variant=self._controls.patches.sam_model,
+            palette=opt.palette,
+            lr=_BENCHMARK_LEARNING_RATE,
+            n_steps=_BENCHMARK_STEPS,
+            trial_seeds=list(_BENCHMARK_TRIAL_SEEDS),
+            device=self._controls.patches.device,
+            hanging_plane_size=self._controls.patches.hanging_plane_size,
+            hanging_plane_y=_HANGING_PLANE_Y,
+            srd_config=srd_config,
+            parent=self,
+        )
+        self._benchmark_worker.pair_started.connect(self._on_benchmark_pair_started)
+        self._benchmark_worker.pair_completed.connect(self._on_benchmark_pair_completed)
+        self._benchmark_worker.failed.connect(self._on_benchmark_failed)
+        self._benchmark_worker.benchmark_finished.connect(self._on_benchmark_finished)
+
+        self._set_benchmark_running(True)
+        self._benchmark_worker.start()
+        print(
+            f"[Benchmark] started: trials={len(_BENCHMARK_TRIAL_SEEDS)}, "
+            f"seeds={_BENCHMARK_TRIAL_SEEDS}, steps={_BENCHMARK_STEPS}, "
+            f"lr={_BENCHMARK_LEARNING_RATE:.1e}, "
+            f"srd={self._controls.benchmark.use_srd}"
+        )
+
+    def _on_benchmark_pair_started(self, index: int, total: int, label: str) -> None:
+        self._controls.benchmark.set_status(
+            f"Running {index} / {total}: {label.replace('_', ' + ')}"
+        )
+        print(f"[Benchmark] pair {index}/{total}: {label}")
+
+    def _on_benchmark_pair_completed(
+        self,
+        label: str,
+        metrics: object,
+        meshes: object,
+    ) -> None:
+        self._viewport.set_meshes(meshes)
+        self._image_panel.set_camera_previews(meshes, self._scene.cameras)
+        loss = metrics.get("loss", 0.0) if isinstance(metrics, dict) else 0.0
+        print(f"[Benchmark] completed {label}: loss={loss:.6f}")
+
+    def _on_benchmark_failed(self, message: str) -> None:
+        self._set_benchmark_running(False)
+        self._restore_current_scene()
+        self._controls.benchmark.set_status("Benchmark failed.")
+        QMessageBox.warning(self, "Benchmark failed", message)
+        print(f"[Benchmark] failed: {message}")
+
+    def _on_benchmark_finished(self, report_path: str, results: object) -> None:
+        self._set_benchmark_running(False)
+        self._restore_current_scene()
+        count = (
+            len(results)
+            if isinstance(results, list)
+            else len(_BENCHMARK_PAIRS) * len(_BENCHMARK_TRIAL_SEEDS)
+        )
+        self._controls.benchmark.set_status(
+            f"Finished {count} runs. Results saved to benchmark/."
+        )
+        QMessageBox.information(
+            self,
+            "Benchmark complete",
+            f"Saved benchmark losses and rendered views to:\n{Path(report_path).parent}",
+        )
+        print(f"[Benchmark] wrote results to {report_path}")
+
+    def _set_benchmark_running(self, running: bool) -> None:
+        self._benchmark_active = running
+        self._controls.benchmark.set_running(running)
+        self._controls.optimization.set_benchmark_running(running)
+        self._controls.patches.set_running(running)
+        self._controls.srd.set_running(running)
+        self._sync_export_enabled()
+
+    def _restore_current_scene(self) -> None:
+        if self._patches:
+            self._viewport.set_patches(self._patches)
+            self._update_camera_previews_from_patches()
+        else:
+            self._viewport.reset()
+            self._update_hanging_plane_mesh()
+            self._image_panel.set_camera_previews([], self._scene.cameras)
 
     def _on_optimization_step(self, step_idx: int, metrics: object, meshes: object) -> None:
         self._viewport.set_meshes(meshes)
@@ -710,13 +847,22 @@ class MainWindow(QMainWindow):
 
     def _sync_export_enabled(self) -> None:
         optimizing = self._worker is not None and self._worker.isRunning()
-        self._controls.export.set_enabled(bool(self._patches) and not optimizing)
+        benchmarking = (
+            self._benchmark_active
+        )
+        self._controls.export.set_enabled(
+            bool(self._patches) and not optimizing and not benchmarking
+        )
+        self._controls.benchmark.set_available(not optimizing and not benchmarking)
         self._sync_edit_controls()
 
     def _sync_edit_controls(self) -> None:
         optimizing = self._worker is not None and self._worker.isRunning()
+        benchmarking = (
+            self._benchmark_active
+        )
         labels = self._build_piece_labels()
-        self._controls.edit.set_running(optimizing)
+        self._controls.edit.set_running(optimizing or benchmarking)
         self._controls.edit.set_piece_labels(labels)
         self._viewport.set_edit_selection(
             self._controls.edit.edit_mode_enabled,
@@ -744,4 +890,7 @@ class MainWindow(QMainWindow):
         if self._worker is not None and self._worker.isRunning():
             self._worker.request_stop()
             self._worker.wait(1500)
+        if self._benchmark_worker is not None and self._benchmark_worker.isRunning():
+            self._benchmark_worker.request_stop()
+            self._benchmark_worker.wait(1500)
         super().closeEvent(event)

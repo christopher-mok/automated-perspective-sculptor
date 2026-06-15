@@ -221,33 +221,62 @@ class Patch(nn.Module):
     def is_self_intersecting(
         self,
         n_per_segment: int = 20,
-        threshold: float = 0.01,
-        neighbor_skip: int = 3,
+        epsilon: float = 1e-7,
     ) -> bool:
-        """Detect likely self-intersection from sampled non-neighbor segments."""
+        """Return whether the sampled closed outline contains crossing segments."""
         with torch.no_grad():
-            pts = self.sample_spline_local(n_per_segment).detach()
+            pts = self.sample_spline_local(n_per_segment).detach().cpu().numpy()
             n = len(pts)
-            if n < 8:
+            if n < 4:
                 return False
 
-            def _segment_distance(a0: torch.Tensor, a1: torch.Tensor,
-                                  b0: torch.Tensor, b1: torch.Tensor) -> torch.Tensor:
-                samples = torch.linspace(0.0, 1.0, 5, device=pts.device, dtype=pts.dtype)
-                a = a0.unsqueeze(0) + samples[:, None] * (a1 - a0).unsqueeze(0)
-                b = b0.unsqueeze(0) + samples[:, None] * (b1 - b0).unsqueeze(0)
-                return torch.cdist(a[:, :2], b[:, :2]).min()
+            def _orientation(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
+                return float(
+                    (b[0] - a[0]) * (c[1] - a[1])
+                    - (b[1] - a[1]) * (c[0] - a[0])
+                )
+
+            def _on_segment(a: np.ndarray, b: np.ndarray, p: np.ndarray) -> bool:
+                return (
+                    min(a[0], b[0]) - epsilon <= p[0] <= max(a[0], b[0]) + epsilon
+                    and min(a[1], b[1]) - epsilon <= p[1] <= max(a[1], b[1]) + epsilon
+                )
+
+            def _segments_intersect(
+                a0: np.ndarray,
+                a1: np.ndarray,
+                b0: np.ndarray,
+                b1: np.ndarray,
+            ) -> bool:
+                o1 = _orientation(a0, a1, b0)
+                o2 = _orientation(a0, a1, b1)
+                o3 = _orientation(b0, b1, a0)
+                o4 = _orientation(b0, b1, a1)
+
+                if (
+                    ((o1 > epsilon and o2 < -epsilon) or (o1 < -epsilon and o2 > epsilon))
+                    and ((o3 > epsilon and o4 < -epsilon) or (o3 < -epsilon and o4 > epsilon))
+                ):
+                    return True
+                if abs(o1) <= epsilon and _on_segment(a0, a1, b0):
+                    return True
+                if abs(o2) <= epsilon and _on_segment(a0, a1, b1):
+                    return True
+                if abs(o3) <= epsilon and _on_segment(b0, b1, a0):
+                    return True
+                if abs(o4) <= epsilon and _on_segment(b0, b1, a1):
+                    return True
+                return False
 
             for i in range(n):
-                a0 = pts[i]
-                a1 = pts[(i + 1) % n]
+                a0 = pts[i, :2]
+                a1 = pts[(i + 1) % n, :2]
                 for j in range(i + 1, n):
-                    wrapped_dist = min((j - i) % n, (i - j) % n)
-                    if wrapped_dist <= neighbor_skip:
+                    if j == i or j == (i + 1) % n or (j + 1) % n == i:
                         continue
-                    b0 = pts[j]
-                    b1 = pts[(j + 1) % n]
-                    if _segment_distance(a0, a1, b0, b1) < threshold:
+                    b0 = pts[j, :2]
+                    b1 = pts[(j + 1) % n, :2]
+                    if _segments_intersect(a0, a1, b0, b1):
                         return True
         return False
 
