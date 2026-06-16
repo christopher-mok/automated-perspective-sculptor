@@ -551,10 +551,11 @@ class BenchmarkSection(QGroupBox):
         self._srd_enabled.setStyleSheet(_LABEL_STYLE)
         layout.addWidget(self._srd_enabled)
 
-        self._steps_slider, self._steps_lbl = _labeled_slider(100, 5000, 2000, "{}")
+        self._steps_slider, self._steps_lbl = _labeled_slider(10, 500, 200, "{}")
         self._steps_slider.valueChanged.connect(
-            lambda v: self._steps_lbl.setText(str(v))
+            lambda _v: self._steps_lbl.setText(str(self.steps_per_trial))
         )
+        self._steps_lbl.setText(str(self.steps_per_trial))
         steps_row = QHBoxLayout()
         steps_lbl = QLabel("Steps per trial")
         steps_lbl.setStyleSheet(_LABEL_STYLE)
@@ -603,7 +604,7 @@ class BenchmarkSection(QGroupBox):
 
     @property
     def steps_per_trial(self) -> int:
-        return self._steps_slider.value()
+        return self._steps_slider.value() * 10
 
 
 # ---------------------------------------------------------------------------
