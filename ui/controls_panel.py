@@ -551,6 +551,19 @@ class BenchmarkSection(QGroupBox):
         self._srd_enabled.setStyleSheet(_LABEL_STYLE)
         layout.addWidget(self._srd_enabled)
 
+        self._steps_slider, self._steps_lbl = _labeled_slider(100, 5000, 2000, "{}")
+        self._steps_slider.valueChanged.connect(
+            lambda v: self._steps_lbl.setText(str(v))
+        )
+        steps_row = QHBoxLayout()
+        steps_lbl = QLabel("Steps per trial")
+        steps_lbl.setStyleSheet(_LABEL_STYLE)
+        steps_row.addWidget(steps_lbl)
+        steps_row.addStretch()
+        steps_row.addWidget(self._steps_lbl)
+        layout.addLayout(steps_row)
+        layout.addWidget(self._steps_slider)
+
         self._run_btn = QPushButton("Run benchmark")
         self._run_btn.setStyleSheet(
             "QPushButton { background: #67522a; color: #fff; border-radius: 4px; padding: 6px; }"
@@ -561,7 +574,7 @@ class BenchmarkSection(QGroupBox):
         layout.addWidget(self._run_btn)
 
         self._status = QLabel(
-            "Runs 3 trials per pair at 3000 steps and a 3.0e-3 learning rate."
+            "Runs 3 trials per pair at a 3.0e-3 learning rate."
         )
         self._status.setStyleSheet("color: #777; font-size: 11px;")
         self._status.setWordWrap(True)
@@ -570,6 +583,7 @@ class BenchmarkSection(QGroupBox):
     def set_running(self, running: bool) -> None:
         self._run_btn.setEnabled(not running)
         self._srd_enabled.setEnabled(not running)
+        self._steps_slider.setEnabled(not running)
         if running:
             self._run_btn.setText("Running benchmark...")
         else:
@@ -578,6 +592,7 @@ class BenchmarkSection(QGroupBox):
     def set_available(self, available: bool) -> None:
         self._run_btn.setEnabled(available)
         self._srd_enabled.setEnabled(available)
+        self._steps_slider.setEnabled(available)
 
     def set_status(self, text: str) -> None:
         self._status.setText(text)
@@ -585,6 +600,10 @@ class BenchmarkSection(QGroupBox):
     @property
     def use_srd(self) -> bool:
         return self._srd_enabled.isChecked()
+
+    @property
+    def steps_per_trial(self) -> int:
+        return self._steps_slider.value()
 
 
 # ---------------------------------------------------------------------------

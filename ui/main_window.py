@@ -23,13 +23,12 @@ _STRING_DASH_LENGTH = 0.08
 _STRING_GAP_LENGTH = 0.05
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _BENCHMARK_PAIRS = (
-    ("circle_triangle", "circle.png", "triangle.jpg"),
-    ("circle_horse", "circle.png", "horse.png"),
-    ("cat_rat", "cat.png", "rat.png"),
-    ("bird_triangle", "bird.png", "triangle.jpg"),
+    ("circle_triangle", "circle.png", "triangle.png"),
+    ("horse_circle", "horse.png", "circle.png"),
+    ("cat_face_tree", "cat_face.png", "tree.png"),
+    ("bird_cat", "bird.png", "cat.png"),
 )
 _BENCHMARK_TRIAL_SEEDS = (0, 1, 2)
-_BENCHMARK_STEPS = 3000
 _BENCHMARK_LEARNING_RATE = 3.0e-3
 
 
@@ -400,6 +399,8 @@ class MainWindow(QMainWindow):
         opt = self._controls.optimization
         srd_config = self._controls.srd.config
         srd_config["enabled"] = self._controls.benchmark.use_srd
+        srd_config["candidate_count"] = 32
+        benchmark_steps = self._controls.benchmark.steps_per_trial
         self._benchmark_worker = BenchmarkWorker(
             cameras=self._scene.cameras,
             image_pairs=image_pairs,
@@ -409,7 +410,7 @@ class MainWindow(QMainWindow):
             sam_variant=self._controls.patches.sam_model,
             palette=opt.palette,
             lr=_BENCHMARK_LEARNING_RATE,
-            n_steps=_BENCHMARK_STEPS,
+            n_steps=benchmark_steps,
             trial_seeds=list(_BENCHMARK_TRIAL_SEEDS),
             device=self._controls.patches.device,
             hanging_plane_size=self._controls.patches.hanging_plane_size,
@@ -426,9 +427,9 @@ class MainWindow(QMainWindow):
         self._benchmark_worker.start()
         print(
             f"[Benchmark] started: trials={len(_BENCHMARK_TRIAL_SEEDS)}, "
-            f"seeds={_BENCHMARK_TRIAL_SEEDS}, steps={_BENCHMARK_STEPS}, "
+            f"seeds={_BENCHMARK_TRIAL_SEEDS}, steps={benchmark_steps}, "
             f"lr={_BENCHMARK_LEARNING_RATE:.1e}, "
-            f"srd={self._controls.benchmark.use_srd}"
+            f"srd={self._controls.benchmark.use_srd}, srd_candidates=32"
         )
 
     def _on_benchmark_pair_started(self, index: int, total: int, label: str) -> None:
