@@ -446,7 +446,18 @@ class MainWindow(QMainWindow):
         self._viewport.set_meshes(meshes)
         self._image_panel.set_camera_previews(meshes, self._scene.cameras)
         loss = metrics.get("loss", 0.0) if isinstance(metrics, dict) else 0.0
-        print(f"[Benchmark] completed {label}: loss={loss:.6f}")
+        trial_seconds = (
+            metrics.get("trial_seconds", 0.0) if isinstance(metrics, dict) else 0.0
+        )
+        average_step_seconds = (
+            metrics.get("average_step_seconds", 0.0)
+            if isinstance(metrics, dict) else 0.0
+        )
+        print(
+            f"[Benchmark] completed {label}: loss={loss:.6f}, "
+            f"time={trial_seconds:.3f}s, "
+            f"avg_step={average_step_seconds:.6f}s"
+        )
 
     def _on_benchmark_failed(self, message: str) -> None:
         self._set_benchmark_running(False)

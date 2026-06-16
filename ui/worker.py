@@ -177,6 +177,58 @@ class BenchmarkWorker(QThread):
         array = np.clip(array * 255.0, 0.0, 255.0).astype(np.uint8)
         Image.fromarray(array, mode="RGBA").save(path)
 
+    def _write_loss_outputs(
+        self,
+        loss_samples: list[tuple[str, int, int, int, float]],
+    ) -> list[Path]:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        csv_path = self._output_dir / "loss_history.csv"
+        csv_lines = ["pair,trial,seed,step,loss"]
+        for label, trial_number, seed, step, loss in loss_samples:
+            csv_lines.append(
+                f"{label},{trial_number},{seed},{step},{loss:.9f}"
+            )
+        csv_path.write_text("\n".join(csv_lines) + "\n", encoding="utf-8")
+
+        plot_paths: list[Path] = []
+        for label, _target1, _target2 in self._image_pairs:
+            label_samples = [
+                (step, loss)
+                for sample_label, _trial, _seed, step, loss in loss_samples
+                if sample_label == label
+            ]
+            if not label_samples:
+                continue
+
+            steps = sorted({step for step, _loss in label_samples})
+            mean_losses = []
+            for step in steps:
+                losses = [
+                    loss
+                    for sample_step, loss in label_samples
+                    if sample_step == step
+                ]
+                mean_losses.append(float(np.mean(losses)))
+
+            fig, ax = plt.subplots(figsize=(8, 5), dpi=150)
+            ax.plot(steps, mean_losses, linewidth=2.0)
+            ax.set_title(f"{label.replace('_', ' + ')} Average Loss")
+            ax.set_xlabel("Step")
+            ax.set_ylabel("Loss")
+            ax.grid(True, alpha=0.3)
+            fig.tight_layout()
+
+            plot_path = self._output_dir / f"{label}_average_loss.png"
+            fig.savefig(plot_path)
+            plt.close(fig)
+            plot_paths.append(plot_path)
+
+        return [csv_path, *plot_paths]
+
     def run(self) -> None:
         try:
             from core.initialization import initialize_patches
@@ -184,6 +236,7 @@ class BenchmarkWorker(QThread):
 
             self._output_dir.mkdir(parents=True, exist_ok=True)
             results: list[tuple[str, int, int, dict[str, float]]] = []
+            loss_samples: list[tuple[str, int, int, int, float]] = []
             total_runs = len(self._image_pairs) * len(self._trial_seeds)
             run_index = 0
 
@@ -202,6 +255,7 @@ class BenchmarkWorker(QThread):
                     run_index += 1
                     run_label = f"{label}_trial{trial_number}"
                     self.pair_started.emit(run_index, total_runs, run_label)
+                    trial_started = time.perf_counter()
                     target1 = _load_target_image_with_border(str(target1_path))
                     target2 = _load_target_image_with_border(str(target2_path))
                     patches = initialize_patches(
@@ -228,10 +282,20 @@ class BenchmarkWorker(QThread):
                         srd_config=self._srd_config,
                     )
 
+                    optimization_started = time.perf_counter()
                     for step_index in range(1, self._n_steps + 1):
                         if self._stop_requested:
                             return
-                        optimizer.step(step_index, self._n_steps)
+                        step_metrics = optimizer.step(step_index, self._n_steps)
+                        if step_index % 10 == 0:
+                            loss_samples.append((
+                                label,
+                                trial_number,
+                                seed,
+                                step_index,
+                                float(step_metrics.get("loss", 0.0)),
+                            ))
+                    optimization_seconds = time.perf_counter() - optimization_started
 
                     metrics, render1, render2 = optimizer.evaluate_snapshot()
                     self._save_render(
@@ -241,6 +305,10 @@ class BenchmarkWorker(QThread):
                     self._save_render(
                         render2,
                         self._output_dir / f"{run_label}_view2.png",
+                    )
+                    metrics["trial_seconds"] = time.perf_counter() - trial_started
+                    metrics["average_step_seconds"] = (
+                        optimization_seconds / self._n_steps
                     )
                     results.append((label, trial_number, seed, metrics))
                     self.pair_completed.emit(
@@ -261,7 +329,9 @@ class BenchmarkWorker(QThread):
             for label, trial_number, seed, metrics in results:
                 report_lines.append(
                     f"{label} trial={trial_number} seed={seed}: "
-                    f"loss={metrics['loss']:.6f}"
+                    f"loss={metrics['loss']:.6f}, "
+                    f"trial_seconds={metrics['trial_seconds']:.3f}, "
+                    f"average_step_seconds={metrics['average_step_seconds']:.6f}"
                 )
             report_lines.append("")
             for label, _target1, _target2 in self._image_pairs:
@@ -273,6 +343,11 @@ class BenchmarkWorker(QThread):
                 report_lines.append(
                     f"{label} mean_loss={float(np.mean(losses)):.6f}"
                 )
+            loss_output_paths = self._write_loss_outputs(loss_samples)
+            report_lines.append("")
+            report_lines.append("loss_outputs:")
+            for path in loss_output_paths:
+                report_lines.append(f"- {path.name}")
             report_path = self._output_dir / "benchmark.txt"
             report_path.write_text("\n".join(report_lines) + "\n", encoding="utf-8")
             self.benchmark_finished.emit(str(report_path), results)
