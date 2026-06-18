@@ -296,8 +296,28 @@ class BenchmarkWorker(QThread):
                                 float(step_metrics.get("loss", 0.0)),
                             ))
                     optimization_seconds = time.perf_counter() - optimization_started
+                    final_deletion_stats = {
+                        "tiny_deleted": 0.0,
+                        "loss_improving_deleted": 0.0,
+                        "evaluated": 0.0,
+                    }
+                    if optimizer.srd is not None and optimizer.srd.enabled:
+                        final_deletion_stats = optimizer.srd.final_deletion_pass(
+                            optimizer,
+                            optimizer.optim,
+                            self._n_steps,
+                        )
 
                     metrics, render1, render2 = optimizer.evaluate_snapshot()
+                    metrics["benchmark_final_tiny_deleted"] = final_deletion_stats[
+                        "tiny_deleted"
+                    ]
+                    metrics["benchmark_final_loss_deleted"] = final_deletion_stats[
+                        "loss_improving_deleted"
+                    ]
+                    metrics["benchmark_final_delete_evaluated"] = final_deletion_stats[
+                        "evaluated"
+                    ]
                     self._save_render(
                         render1,
                         self._output_dir / f"{run_label}_view1.png",
@@ -331,7 +351,10 @@ class BenchmarkWorker(QThread):
                     f"{label} trial={trial_number} seed={seed}: "
                     f"loss={metrics['loss']:.6f}, "
                     f"trial_seconds={metrics['trial_seconds']:.3f}, "
-                    f"average_step_seconds={metrics['average_step_seconds']:.6f}"
+                    f"average_step_seconds={metrics['average_step_seconds']:.6f}, "
+                    f"final_tiny_deleted={metrics['benchmark_final_tiny_deleted']:.0f}, "
+                    f"final_loss_deleted={metrics['benchmark_final_loss_deleted']:.0f}, "
+                    f"final_delete_evaluated={metrics['benchmark_final_delete_evaluated']:.0f}"
                 )
             report_lines.append("")
             for label, _target1, _target2 in self._image_pairs:

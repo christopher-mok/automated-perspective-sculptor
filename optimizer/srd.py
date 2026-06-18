@@ -109,7 +109,7 @@ class StochasticRewriteDescent:
         interval: int = 50,
         lambda_count: float = 0.05,
         lambda_area: float = 0.05,
-        min_patch_area: float = 0.001,
+        min_patch_area: float = 0.01,
         max_patches: int = 200,
         min_patches: int = 4,
         max_additions: int = 3,
@@ -232,6 +232,83 @@ class StochasticRewriteDescent:
             )
             for idx in indices
         ]
+
+    def final_deletion_pass(
+        self,
+        model,
+        optimizer: torch.optim.Optimizer,
+        current_step: int,
+    ) -> dict[str, float]:
+        """Greedily delete tiny or loss-worsening pieces at the end of a run."""
+        stats = {
+            "tiny_deleted": 0.0,
+            "loss_improving_deleted": 0.0,
+            "evaluated": 0.0,
+        }
+        if not self.enabled or len(model.patches) <= 1:
+            return stats
+
+        tiny_deletes = self._tiny_area_delete_rewrites(model)
+        if tiny_deletes:
+            self._apply_rewrites(model, optimizer, tiny_deletes, current_step)
+            optimizer = model.optim
+            stats["tiny_deleted"] = float(len(tiny_deletes))
+
+        current_loss = self._current_model_loss(model)
+        patch_index = 0
+        while patch_index < len(model.patches) and len(model.patches) > 1:
+            stats["evaluated"] += 1.0
+            loss_without_patch = self._loss_without_patch(model, patch_index)
+            if loss_without_patch < current_loss:
+                rewrite = RewriteCandidate(
+                    kind="delete",
+                    patch_index=patch_index,
+                    improvement=current_loss - loss_without_patch,
+                    reason="final deletion pass improved loss",
+                )
+                self._apply_single(
+                    model,
+                    rewrite,
+                    current_step=current_step,
+                    tentative=False,
+                )
+                optimizer = self._rebuild_optimizer(model, optimizer)
+                model.optim = optimizer
+                model._post_step_constraints()
+                current_loss = loss_without_patch
+                stats["loss_improving_deleted"] += 1.0
+                continue
+            patch_index += 1
+
+        model._post_step_constraints()
+        return stats
+
+    def _current_model_loss(self, model) -> float:
+        with torch.no_grad():
+            render1, render2 = model.renderer.render_both(
+                model.patches,
+                model.camera1,
+                model.camera2,
+                model.render_resolutions,
+            )
+            loss, _ = model._loss_from_renders(render1, render2, model.patches)
+        return float(loss.detach().cpu())
+
+    def _loss_without_patch(self, model, patch_index: int) -> float:
+        remaining = [
+            patch
+            for idx, patch in enumerate(model.patches)
+            if idx != patch_index
+        ]
+        with torch.no_grad():
+            render1, render2 = model.renderer.render_both(
+                remaining,
+                model.camera1,
+                model.camera2,
+                model.render_resolutions,
+            )
+            loss, _ = model._loss_from_renders(render1, render2, remaining)
+        return float(loss.detach().cpu())
 
     def _mandatory_delete_rewrites(self, model, current_step: int) -> list[RewriteCandidate]:
         """Find patches that must be deleted before stochastic SRD scoring."""
