@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QComboBox,
     QGroupBox,
@@ -75,7 +76,7 @@ def _labeled_slider(
 
 
 class PatchesSection(QGroupBox):
-    initialize_requested = pyqtSignal(int, str)   # n_patches, init_mode
+    initialize_requested = pyqtSignal(int, str, object)   # n_patches, init_mode, seed
     hanging_plane_size_changed = pyqtSignal(float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -143,6 +144,13 @@ class PatchesSection(QGroupBox):
         self._device_combo.setStyleSheet("color: #ddd; background: #2a2a2a;")
         layout.addLayout(_row("Device", self._device_combo))
 
+        # Optional random seed for Experimental initialization
+        self._seed_edit = QLineEdit()
+        self._seed_edit.setPlaceholderText("Blank = random")
+        self._seed_edit.setValidator(QIntValidator(0, 2_147_483_647, self))
+        self._seed_edit.setStyleSheet("color: #ddd; background: #2a2a2a;")
+        layout.addLayout(_row("Seed", self._seed_edit))
+
         # Initialize button
         self._init_btn = QPushButton("Initialize patches")
         self._init_btn.setStyleSheet(
@@ -160,12 +168,18 @@ class PatchesSection(QGroupBox):
         sam_only = text == "SAM segmentation"
         self._sam_model_lbl.setVisible(sam_only)
         self._sam_model_combo.setVisible(sam_only)
+        self._seed_edit.setEnabled(not sam_only)
+        if sam_only:
+            self._seed_edit.setPlaceholderText("Experimental mode only")
+        else:
+            self._seed_edit.setPlaceholderText("Blank = random")
 
     def _on_initialize(self) -> None:
         n = self._n_slider.value()
         mode = self._init_combo.currentText()
-        print(f"[Initialize patches] n={n}, mode={mode!r}")
-        self.initialize_requested.emit(n, mode)
+        seed = self.seed
+        print(f"[Initialize patches] n={n}, mode={mode!r}, seed={seed}")
+        self.initialize_requested.emit(n, mode, seed)
 
         # Trigger visibility update in case the widget was just shown
         self._on_mode_changed(mode)
@@ -184,6 +198,11 @@ class PatchesSection(QGroupBox):
         return self._sam_model_combo.currentText()
 
     @property
+    def seed(self) -> int | None:
+        text = self._seed_edit.text().strip()
+        return int(text) if text else None
+
+    @property
     def hanging_plane_size(self) -> float:
         """Returns the square hanging plane side length in scene units."""
         return self._plane_slider.value() / 10.0
@@ -199,6 +218,7 @@ class PatchesSection(QGroupBox):
             self._init_combo,
             self._sam_model_combo,
             self._device_combo,
+            self._seed_edit,
             self._plane_slider,
             self._init_btn,
         ):

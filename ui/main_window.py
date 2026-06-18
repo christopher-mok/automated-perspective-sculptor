@@ -221,7 +221,7 @@ class MainWindow(QMainWindow):
         self._target2_img = _load_target_image_with_border(path)
         print(f"[View 2 target] loaded: {path}")
 
-    def _on_initialize(self, n_patches: int, mode: str) -> None:
+    def _on_initialize(self, n_patches: int, mode: str, seed: int | None) -> None:
         from core.initialization import initialize_patches
 
         device = self._controls.patches.device
@@ -234,6 +234,7 @@ class MainWindow(QMainWindow):
                 sam_variant=self._controls.patches.sam_model,
                 cameras=self._scene.cameras,
                 device=device,
+                seed=seed,
             )
             from core.optimizer import snap_patches_to_palette
 
@@ -249,7 +250,7 @@ class MainWindow(QMainWindow):
 
         self._viewport.set_patches(self._patches)
         self._update_camera_previews_from_patches()
-        print(f"[Initialize patches] {len(self._patches)} patches ({mode}, {device})")
+        print(f"[Initialize patches] {len(self._patches)} patches ({mode}, {device}, seed={seed})")
 
     def _on_run_optimization(self) -> None:
         if not self._patches:
