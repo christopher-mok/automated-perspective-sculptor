@@ -147,6 +147,7 @@ class BenchmarkWorker(QThread):
         hanging_plane_size: float,
         hanging_plane_y: float,
         srd_config: dict[str, object] | None,
+        simulated_annealing: bool,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -164,6 +165,7 @@ class BenchmarkWorker(QThread):
         self._hanging_plane_size = hanging_plane_size
         self._hanging_plane_y = hanging_plane_y
         self._srd_config = srd_config
+        self._simulated_annealing = simulated_annealing
         self._stop_requested = False
 
     def request_stop(self) -> None:
@@ -280,6 +282,7 @@ class BenchmarkWorker(QThread):
                         hanging_plane_size=self._hanging_plane_size,
                         hanging_plane_y=self._hanging_plane_y,
                         srd_config=self._srd_config,
+                        simulated_annealing=self._simulated_annealing,
                     )
 
                     optimization_started = time.perf_counter()
@@ -344,6 +347,7 @@ class BenchmarkWorker(QThread):
                 f"steps={self._n_steps}",
                 f"learning_rate={self._lr:.6g}",
                 f"srd_enabled={self._srd_config is not None and bool(self._srd_config.get('enabled', False))}",
+                f"simulated_annealing={self._simulated_annealing}",
                 "",
             ]
             for label, trial_number, seed, metrics in results:

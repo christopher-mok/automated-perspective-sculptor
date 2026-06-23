@@ -551,6 +551,11 @@ class BenchmarkSection(QGroupBox):
         self._srd_enabled.setStyleSheet(_LABEL_STYLE)
         layout.addWidget(self._srd_enabled)
 
+        self._annealing_enabled = QCheckBox("Use simulated annealing")
+        self._annealing_enabled.setChecked(False)
+        self._annealing_enabled.setStyleSheet(_LABEL_STYLE)
+        layout.addWidget(self._annealing_enabled)
+
         self._steps_slider, self._steps_lbl = _labeled_slider(10, 500, 200, "{}")
         self._steps_slider.valueChanged.connect(
             lambda _v: self._steps_lbl.setText(str(self.steps_per_trial))
@@ -584,6 +589,7 @@ class BenchmarkSection(QGroupBox):
     def set_running(self, running: bool) -> None:
         self._run_btn.setEnabled(not running)
         self._srd_enabled.setEnabled(not running)
+        self._annealing_enabled.setEnabled(not running)
         self._steps_slider.setEnabled(not running)
         if running:
             self._run_btn.setText("Running benchmark...")
@@ -593,6 +599,7 @@ class BenchmarkSection(QGroupBox):
     def set_available(self, available: bool) -> None:
         self._run_btn.setEnabled(available)
         self._srd_enabled.setEnabled(available)
+        self._annealing_enabled.setEnabled(available)
         self._steps_slider.setEnabled(available)
 
     def set_status(self, text: str) -> None:
@@ -601,6 +608,10 @@ class BenchmarkSection(QGroupBox):
     @property
     def use_srd(self) -> bool:
         return self._srd_enabled.isChecked()
+
+    @property
+    def use_simulated_annealing(self) -> bool:
+        return self._annealing_enabled.isChecked()
 
     @property
     def steps_per_trial(self) -> int:

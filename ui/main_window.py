@@ -416,6 +416,7 @@ class MainWindow(QMainWindow):
             hanging_plane_size=self._controls.patches.hanging_plane_size,
             hanging_plane_y=_HANGING_PLANE_Y,
             srd_config=srd_config,
+            simulated_annealing=self._controls.benchmark.use_simulated_annealing,
             parent=self,
         )
         self._benchmark_worker.pair_started.connect(self._on_benchmark_pair_started)
@@ -429,7 +430,8 @@ class MainWindow(QMainWindow):
             f"[Benchmark] started: trials={len(_BENCHMARK_TRIAL_SEEDS)}, "
             f"seeds={_BENCHMARK_TRIAL_SEEDS}, steps={benchmark_steps}, "
             f"lr={_BENCHMARK_LEARNING_RATE:.1e}, "
-            f"srd={self._controls.benchmark.use_srd}, srd_candidates=32"
+            f"srd={self._controls.benchmark.use_srd}, srd_candidates=32, "
+            f"annealing={self._controls.benchmark.use_simulated_annealing}"
         )
 
     def _on_benchmark_pair_started(self, index: int, total: int, label: str) -> None:
