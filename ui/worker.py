@@ -151,6 +151,7 @@ class BenchmarkWorker(QThread):
         hanging_plane_y: float,
         srd_config: dict[str, object] | None,
         simulated_annealing: bool,
+        swept_volume_resolution: int,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -169,6 +170,7 @@ class BenchmarkWorker(QThread):
         self._hanging_plane_y = hanging_plane_y
         self._srd_config = srd_config
         self._simulated_annealing = simulated_annealing
+        self._swept_volume_resolution = swept_volume_resolution
         self._stop_requested = False
 
     def request_stop(self) -> None:
@@ -264,11 +266,30 @@ class BenchmarkWorker(QThread):
                     trial_started = time.perf_counter()
                     target1 = _load_target_image_with_border(str(target1_path))
                     target2 = _load_target_image_with_border(str(target2_path))
+                    last_progress = -1
+
+                    def _on_swept_progress(done: int, total: int) -> None:
+                        nonlocal last_progress
+                        percent = int(round((done / max(total, 1)) * 100))
+                        if percent >= last_progress + 10 or done == total:
+                            last_progress = percent
+                            self.pair_started.emit(
+                                run_index,
+                                total_runs,
+                                f"{run_label}_swept_volume_{percent}%",
+                            )
+                            print(
+                                f"[Swept volume] {run_label}: "
+                                f"{done}/{total} slices ({percent}%)"
+                            )
+
                     swept_volume = SweptVolume.from_images(
                         target1,
                         target2,
                         self._cameras,
                         hanging_plane_size=self._hanging_plane_size,
+                        resolution=self._swept_volume_resolution,
+                        progress_callback=_on_swept_progress,
                     )
                     patches = initialize_patches(
                         mode=self._init_mode,
@@ -360,6 +381,7 @@ class BenchmarkWorker(QThread):
                 f"learning_rate={self._lr:.6g}",
                 f"srd_enabled={self._srd_config is not None and bool(self._srd_config.get('enabled', False))}",
                 f"simulated_annealing={self._simulated_annealing}",
+                f"swept_volume_resolution={self._swept_volume_resolution}",
                 "",
             ]
             for label, trial_number, seed, metrics in results:

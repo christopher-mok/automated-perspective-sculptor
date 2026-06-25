@@ -537,6 +537,7 @@ class OptimizationSection(QGroupBox):
 
 class BenchmarkSection(QGroupBox):
     run_requested = pyqtSignal()
+    swept_volume_resolution_changed = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Benchmark", parent)
@@ -570,6 +571,27 @@ class BenchmarkSection(QGroupBox):
         layout.addLayout(steps_row)
         layout.addWidget(self._steps_slider)
 
+        self._volume_resolution_slider, self._volume_resolution_lbl = _labeled_slider(
+            24,
+            512,
+            108,
+            "{}",
+        )
+        self._volume_resolution_slider.valueChanged.connect(
+            lambda v: self._volume_resolution_lbl.setText(str(v))
+        )
+        self._volume_resolution_slider.valueChanged.connect(
+            self.swept_volume_resolution_changed.emit
+        )
+        volume_row = QHBoxLayout()
+        volume_lbl = QLabel("Swept volume resolution")
+        volume_lbl.setStyleSheet(_LABEL_STYLE)
+        volume_row.addWidget(volume_lbl)
+        volume_row.addStretch()
+        volume_row.addWidget(self._volume_resolution_lbl)
+        layout.addLayout(volume_row)
+        layout.addWidget(self._volume_resolution_slider)
+
         self._run_btn = QPushButton("Run benchmark")
         self._run_btn.setStyleSheet(
             "QPushButton { background: #67522a; color: #fff; border-radius: 4px; padding: 6px; }"
@@ -591,6 +613,7 @@ class BenchmarkSection(QGroupBox):
         self._srd_enabled.setEnabled(not running)
         self._annealing_enabled.setEnabled(not running)
         self._steps_slider.setEnabled(not running)
+        self._volume_resolution_slider.setEnabled(not running)
         if running:
             self._run_btn.setText("Running benchmark...")
         else:
@@ -601,6 +624,7 @@ class BenchmarkSection(QGroupBox):
         self._srd_enabled.setEnabled(available)
         self._annealing_enabled.setEnabled(available)
         self._steps_slider.setEnabled(available)
+        self._volume_resolution_slider.setEnabled(available)
 
     def set_status(self, text: str) -> None:
         self._status.setText(text)
@@ -616,6 +640,10 @@ class BenchmarkSection(QGroupBox):
     @property
     def steps_per_trial(self) -> int:
         return self._steps_slider.value() * 10
+
+    @property
+    def swept_volume_resolution(self) -> int:
+        return self._volume_resolution_slider.value()
 
 
 # ---------------------------------------------------------------------------

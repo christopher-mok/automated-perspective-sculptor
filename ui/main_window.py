@@ -252,6 +252,9 @@ class MainWindow(QMainWindow):
         self._controls.patches.hanging_plane_size_changed.connect(
             self._on_hanging_plane_size_changed
         )
+        self._controls.benchmark.swept_volume_resolution_changed.connect(
+            self._on_swept_volume_settings_changed
+        )
         self._update_hanging_plane_mesh()
         self._sync_export_enabled()
 
@@ -413,6 +416,7 @@ class MainWindow(QMainWindow):
         srd_config["enabled"] = self._controls.benchmark.use_srd
         srd_config["candidate_count"] = 32
         benchmark_steps = self._controls.benchmark.steps_per_trial
+        swept_volume_resolution = self._controls.benchmark.swept_volume_resolution
         self._benchmark_worker = BenchmarkWorker(
             cameras=self._scene.cameras,
             image_pairs=image_pairs,
@@ -429,6 +433,7 @@ class MainWindow(QMainWindow):
             hanging_plane_y=_HANGING_PLANE_Y,
             srd_config=srd_config,
             simulated_annealing=self._controls.benchmark.use_simulated_annealing,
+            swept_volume_resolution=swept_volume_resolution,
             parent=self,
         )
         self._benchmark_worker.pair_started.connect(self._on_benchmark_pair_started)
@@ -443,7 +448,8 @@ class MainWindow(QMainWindow):
             f"seeds={_BENCHMARK_TRIAL_SEEDS}, steps={benchmark_steps}, "
             f"lr={_BENCHMARK_LEARNING_RATE:.1e}, "
             f"srd={self._controls.benchmark.use_srd}, srd_candidates=32, "
-            f"annealing={self._controls.benchmark.use_simulated_annealing}"
+            f"annealing={self._controls.benchmark.use_simulated_annealing}, "
+            f"swept_resolution={swept_volume_resolution}"
         )
 
     def _on_benchmark_pair_started(self, index: int, total: int, label: str) -> None:
@@ -646,8 +652,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_hanging_plane_size_changed(self, size: float) -> None:
-        self._swept_volume = None
-        self._show_swept_volume = False
+        self._clear_swept_volume_cache()
         self._update_hanging_plane_mesh()
         self._clear_string_connections()
         self._constrain_patches_to_hanging_plane()
@@ -656,6 +661,14 @@ class MainWindow(QMainWindow):
             self._update_string_lines()
             self._update_camera_previews_from_patches()
         print(f"[Hanging plane] size={size:.1f}, y={_HANGING_PLANE_Y:.1f}")
+
+    def _on_swept_volume_settings_changed(self) -> None:
+        self._clear_swept_volume_cache()
+        self._update_hanging_plane_mesh()
+        print(
+            "[Swept volume] resolution="
+            f"{self._controls.benchmark.swept_volume_resolution}"
+        )
 
     def _on_reset(self) -> None:
         if self._worker is not None and self._worker.isRunning():
@@ -805,6 +818,10 @@ class MainWindow(QMainWindow):
         meshes = [patch.to_mesh() for patch in self._patches]
         self._image_panel.set_camera_previews(meshes, self._scene.cameras)
 
+    def _clear_swept_volume_cache(self) -> None:
+        self._swept_volume = None
+        self._show_swept_volume = False
+
     def _ensure_swept_volume(self):
         if self._swept_volume is not None:
             return self._swept_volume
@@ -813,11 +830,17 @@ class MainWindow(QMainWindow):
 
         from core.swept_volume import SweptVolume
 
+        def _progress(done: int, total: int) -> None:
+            if done == total or done % 12 == 0:
+                print(f"[Swept volume] building {done}/{total} slices")
+
         self._swept_volume = SweptVolume.from_images(
             self._target1_img,
             self._target2_img,
             self._scene.cameras,
             hanging_plane_size=self._controls.patches.hanging_plane_size,
+            resolution=self._controls.benchmark.swept_volume_resolution,
+            progress_callback=_progress,
         )
         print(f"[Swept volume] precomputed {len(self._swept_volume.points)} occupied samples")
         self._update_hanging_plane_mesh()

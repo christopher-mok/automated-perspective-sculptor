@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -86,6 +87,8 @@ class SweptVolume:
         hanging_plane_size: float,
         resolution: int = 108,
         inflate_steps: int = 2,
+        slice_batch_size: int = 4,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> "SweptVolume":
         if len(cameras) < 2:
             raise ValueError("Swept volume requires two cameras.")
@@ -96,11 +99,24 @@ class SweptVolume:
         bounds_min = np.array([-half, -half, -half], dtype=np.float32)
         bounds_max = np.array([half, half, half], dtype=np.float32)
         axis = np.linspace(-half, half, max(4, int(resolution)), dtype=np.float32)
-        xx, yy, zz = np.meshgrid(axis, axis, axis, indexing="xy")
-        points = np.stack([xx.ravel(), yy.ravel(), zz.ravel()], axis=1)
 
-        inside = cls._points_inside_masks(points, mask1, mask2, cameras[0], cameras[1])
-        kept = points[inside]
+        kept_batches: list[np.ndarray] = []
+        total_slices = len(axis)
+        batch_size = max(1, int(slice_batch_size))
+        for start in range(0, total_slices, batch_size):
+            end = min(start + batch_size, total_slices)
+            xx, yy, zz = np.meshgrid(axis, axis, axis[start:end], indexing="xy")
+            points = np.stack([xx.ravel(), yy.ravel(), zz.ravel()], axis=1)
+            inside = cls._points_inside_masks(points, mask1, mask2, cameras[0], cameras[1])
+            if np.any(inside):
+                kept_batches.append(points[inside])
+            if progress_callback is not None:
+                progress_callback(end, total_slices)
+
+        kept = (
+            np.concatenate(kept_batches, axis=0)
+            if kept_batches else np.empty((0, 3), dtype=np.float32)
+        )
         if len(kept) == 0:
             raise ValueError("Swept volume is empty. Check that both target images overlap in 3D.")
 
