@@ -37,6 +37,7 @@ class OptimizationWorker(QThread):
         hanging_plane_size: float,
         hanging_plane_y: float,
         srd_config: dict[str, object] | None,
+        swept_volume: object | None,
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
@@ -55,6 +56,7 @@ class OptimizationWorker(QThread):
         self._hanging_plane_size = hanging_plane_size
         self._hanging_plane_y = hanging_plane_y
         self._srd_config = srd_config
+        self._swept_volume = swept_volume
         self._stop_requested = False
         self._pause_requested = False
 
@@ -85,6 +87,7 @@ class OptimizationWorker(QThread):
                 hanging_plane_size=self._hanging_plane_size,
                 hanging_plane_y=self._hanging_plane_y,
                 srd_config=self._srd_config,
+                swept_volume=self._swept_volume,
             )
 
             last_metrics: dict[str, float] = {}
@@ -234,6 +237,7 @@ class BenchmarkWorker(QThread):
     def run(self) -> None:
         try:
             from core.initialization import initialize_patches
+            from core.swept_volume import SweptVolume
             from ui.main_window import _load_target_image_with_border
 
             self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -260,6 +264,12 @@ class BenchmarkWorker(QThread):
                     trial_started = time.perf_counter()
                     target1 = _load_target_image_with_border(str(target1_path))
                     target2 = _load_target_image_with_border(str(target2_path))
+                    swept_volume = SweptVolume.from_images(
+                        target1,
+                        target2,
+                        self._cameras,
+                        hanging_plane_size=self._hanging_plane_size,
+                    )
                     patches = initialize_patches(
                         mode=self._init_mode,
                         n_patches=self._n_patches,
@@ -268,6 +278,7 @@ class BenchmarkWorker(QThread):
                         cameras=self._cameras,
                         device=self._device,
                         seed=seed,
+                        swept_volume=swept_volume,
                     )
                     optimizer = SceneOptimizer(
                         patches,
@@ -283,6 +294,7 @@ class BenchmarkWorker(QThread):
                         hanging_plane_y=self._hanging_plane_y,
                         srd_config=self._srd_config,
                         simulated_annealing=self._simulated_annealing,
+                        swept_volume=swept_volume,
                     )
 
                     optimization_started = time.perf_counter()

@@ -22,6 +22,7 @@ from core.patch import ControlPoint, Patch
 
 if TYPE_CHECKING:
     from scene.camera import Camera
+    from core.swept_volume import SweptVolume
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +157,7 @@ def init_experimental(
     radius: float = _DEFAULT_RADIUS,
     device: str = "cpu",
     seed: int | None = None,
+    swept_volume: "SweptVolume | None" = None,
 ) -> list[Patch]:
     """Randomize patch centers within a 4x4x4 viewport-grid box."""
     rng = np.random.default_rng(seed)
@@ -165,8 +167,11 @@ def init_experimental(
 
     patches: list[Patch] = []
     for i in range(n_patches):
-        point = rng.uniform(_EXPERIMENTAL_MIN, _EXPERIMENTAL_MAX).astype(np.float32)
-        point = np.clip(point, _EXPERIMENTAL_MIN, _EXPERIMENTAL_MAX)
+        if swept_volume is not None:
+            point = swept_volume.sample_point(rng)
+        else:
+            point = rng.uniform(_EXPERIMENTAL_MIN, _EXPERIMENTAL_MAX).astype(np.float32)
+            point = np.clip(point, _EXPERIMENTAL_MIN, _EXPERIMENTAL_MAX)
         patches.append(_make_patch(
             center=point.tolist(),
             theta=_sample_allowed_theta(rng, camera_angles),
@@ -210,6 +215,7 @@ def init_sam(
     y: float = _DEFAULT_Y,
     sam_variant: str = "MobileSAM (fast)",
     device: str = "cpu",
+    swept_volume: "SweptVolume | None" = None,
 ) -> list[Patch]:
     """Initialize patches from SAM segmentation of a reference image.
 
@@ -283,8 +289,12 @@ def init_sam(
         seg: np.ndarray = mask_data["segmentation"]
         mean_rgb = (image_rgb[seg].mean(axis=0) / 255.0).tolist() if seg.any() else [1.0, 1.0, 1.0]
 
+        center = (
+            swept_volume.sample_point(np.random.default_rng(i))
+            if swept_volume is not None else np.array([wx, y, wz], dtype=np.float32)
+        )
         patches.append(_make_patch(
-            center=[wx, y, wz],
+            center=center.tolist(),
             theta=0.0,
             radius=patch_radius,
             albedo=mean_rgb,
@@ -299,6 +309,7 @@ def init_sam(
             radius=radius,
             device=device,
             seed=42,
+            swept_volume=swept_volume,
         )
         for j, p in enumerate(extra):
             p.label = f"patch_{len(patches) + j:04d}"
@@ -324,6 +335,7 @@ def initialize_patches(
     sam_variant: str = "MobileSAM (fast)",
     cameras: list["Camera"] | None = None,
     seed: int | None = None,
+    swept_volume: "SweptVolume | None" = None,
 ) -> list[Patch]:
     """Single entry-point called by the UI.
 
@@ -340,7 +352,14 @@ def initialize_patches(
         seed:            RNG seed for Experimental mode.
     """
     if mode == "Experimental":
-        return init_experimental(n_patches, cameras, radius, device, seed=seed)
+        return init_experimental(
+            n_patches,
+            cameras,
+            radius,
+            device,
+            seed=seed,
+            swept_volume=swept_volume,
+        )
 
     if mode == "SAM segmentation":
         if reference_image is None:
@@ -349,6 +368,7 @@ def initialize_patches(
                 "Load a View 1 target image first."
             )
         return init_sam(reference_image, n_patches, bounds, radius, y,
-                        sam_variant=sam_variant, device=device)
+                        sam_variant=sam_variant, device=device,
+                        swept_volume=swept_volume)
 
     raise ValueError(f"Unknown initialization mode: {mode!r}")

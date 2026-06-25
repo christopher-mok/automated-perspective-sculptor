@@ -32,6 +32,7 @@ from optimizer.srd import StochasticRewriteDescent
 
 if TYPE_CHECKING:
     from core.patch import Patch
+    from core.swept_volume import SweptVolume
     from scene.camera import Camera
     from scene.scene import Mesh
 
@@ -440,6 +441,7 @@ class SceneOptimizer:
         srd_config: dict[str, object] | None = None,
         simulated_annealing: bool = False,
         initial_temperature: float = 1.0,
+        swept_volume: "SweptVolume | None" = None,
     ) -> None:
         if not patches:
             raise ValueError("SceneOptimizer requires at least one patch.")
@@ -466,6 +468,7 @@ class SceneOptimizer:
         self.min_patch_area = min_patch_area
         self.simulated_annealing = bool(simulated_annealing)
         self.initial_temperature = float(initial_temperature)
+        self.swept_volume = swept_volume
 
         self.palette = parse_palette(palette).to(device)
         target1_fit = fit_image_to_resolution(target1, self.resolution, device)
@@ -495,7 +498,9 @@ class SceneOptimizer:
         snap_patches_to_palette(self.patches, self.palette)
         self._post_step_constraints()
         if srd_config is not None:
-            self.srd: StochasticRewriteDescent | None = StochasticRewriteDescent(**srd_config)
+            srd_kwargs = dict(srd_config)
+            srd_kwargs["swept_volume"] = swept_volume
+            self.srd: StochasticRewriteDescent | None = StochasticRewriteDescent(**srd_kwargs)
         else:
             self.srd = None
 

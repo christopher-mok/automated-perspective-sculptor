@@ -946,6 +946,7 @@ class ExportSection(QGroupBox):
     export_requested = pyqtSignal()
     import_requested = pyqtSignal()
     strings_requested = pyqtSignal()
+    swept_volume_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Export", parent)
@@ -983,6 +984,15 @@ class ExportSection(QGroupBox):
         )
         self._strings_btn.clicked.connect(self.strings_requested.emit)
         layout.addWidget(self._strings_btn)
+
+        self._swept_volume_btn = QPushButton("Toggle swept volume")
+        self._swept_volume_btn.setStyleSheet(
+            "QPushButton { background: #2f4d5f; color: #fff; border-radius: 4px; padding: 6px; }"
+            "QPushButton:hover { background: #3b6178; }"
+            "QPushButton:pressed { background: #254052; }"
+        )
+        self._swept_volume_btn.clicked.connect(self.swept_volume_requested.emit)
+        layout.addWidget(self._swept_volume_btn)
 
         note = QLabel("Import previous designs or export current patches to exports/pieces.json.")
         note.setStyleSheet("color: #666; font-size: 11px; font-style: italic;")

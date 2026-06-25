@@ -14,6 +14,7 @@ import torch
 from core.patch import ControlPoint, Patch
 
 if TYPE_CHECKING:
+    from core.swept_volume import SweptVolume
     from scene.camera import Camera
 
 
@@ -121,6 +122,7 @@ class StochasticRewriteDescent:
         no_contribution_alpha: float = 1e-5,
         no_effect_image_delta: float = 1e-6,
         rule_violation_tol: float = 1e-4,
+        swept_volume: "SweptVolume | None" = None,
     ) -> None:
         self.enabled = enabled
         self.interval = interval
@@ -138,6 +140,7 @@ class StochasticRewriteDescent:
         self.no_contribution_alpha = no_contribution_alpha
         self.no_effect_image_delta = no_effect_image_delta
         self.rule_violation_tol = rule_violation_tol
+        self.swept_volume = swept_volume
         self.deleted_history: list[dict] = []
         self.stats = SRDStats()
 
@@ -487,11 +490,14 @@ class StochasticRewriteDescent:
                     patch_state=copy.deepcopy(self.deleted_history[hist_idx]),
                 ))
             else:
-                position = np.random.uniform(
-                    -self.scene_box_size * 0.5,
-                    self.scene_box_size * 0.5,
-                    size=3,
-                ).astype(np.float32)
+                if self.swept_volume is not None:
+                    position = self.swept_volume.sample_point()
+                else:
+                    position = np.random.uniform(
+                        -self.scene_box_size * 0.5,
+                        self.scene_box_size * 0.5,
+                        size=3,
+                    ).astype(np.float32)
                 candidates.append(RewriteCandidate(kind="add", position=position))
 
         eligible_delete_indices = [

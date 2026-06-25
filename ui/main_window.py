@@ -207,6 +207,8 @@ class MainWindow(QMainWindow):
         self._worker = None
         self._benchmark_worker = None
         self._benchmark_active = False
+        self._swept_volume = None
+        self._show_swept_volume = False
         self._optimization_run_until_convergence = False
         self._reset_after_worker_stops = False
 
@@ -246,6 +248,7 @@ class MainWindow(QMainWindow):
         self._controls.export.export_requested.connect(self._on_export_json)
         self._controls.export.import_requested.connect(self._on_import_json)
         self._controls.export.strings_requested.connect(self._on_add_strings)
+        self._controls.export.swept_volume_requested.connect(self._on_toggle_swept_volume)
         self._controls.patches.hanging_plane_size_changed.connect(
             self._on_hanging_plane_size_changed
         )
@@ -258,10 +261,16 @@ class MainWindow(QMainWindow):
 
     def _on_view1_loaded(self, path: str) -> None:
         self._target1_img = _load_target_image_with_border(path)
+        self._swept_volume = None
+        self._show_swept_volume = False
+        self._update_hanging_plane_mesh()
         print(f"[View 1 target] loaded: {path}")
 
     def _on_view2_loaded(self, path: str) -> None:
         self._target2_img = _load_target_image_with_border(path)
+        self._swept_volume = None
+        self._show_swept_volume = False
+        self._update_hanging_plane_mesh()
         print(f"[View 2 target] loaded: {path}")
 
     def _on_initialize(self, n_patches: int, mode: str) -> None:
@@ -270,6 +279,7 @@ class MainWindow(QMainWindow):
         device = self._controls.patches.device
 
         try:
+            swept_volume = self._ensure_swept_volume()
             self._patches = initialize_patches(
                 mode=mode,
                 n_patches=n_patches,
@@ -277,6 +287,7 @@ class MainWindow(QMainWindow):
                 sam_variant=self._controls.patches.sam_model,
                 cameras=self._scene.cameras,
                 device=device,
+                swept_volume=swept_volume,
             )
             from core.optimizer import snap_patches_to_palette
 
@@ -346,6 +357,7 @@ class MainWindow(QMainWindow):
             hanging_plane_size=self._controls.patches.hanging_plane_size,
             hanging_plane_y=_HANGING_PLANE_Y,
             srd_config=self._controls.srd.config,
+            swept_volume=self._swept_volume,
             parent=self,
         )
         self._worker.step_completed.connect(self._on_optimization_step)
@@ -634,6 +646,8 @@ class MainWindow(QMainWindow):
         )
 
     def _on_hanging_plane_size_changed(self, size: float) -> None:
+        self._swept_volume = None
+        self._show_swept_volume = False
         self._update_hanging_plane_mesh()
         self._clear_string_connections()
         self._constrain_patches_to_hanging_plane()
@@ -775,6 +789,8 @@ class MainWindow(QMainWindow):
         self._patches = []
         self._target1_img = None
         self._target2_img = None
+        self._swept_volume = None
+        self._show_swept_volume = False
         self._image_panel.reset()
         self._viewport.reset()
         self._update_hanging_plane_mesh()
@@ -789,10 +805,40 @@ class MainWindow(QMainWindow):
         meshes = [patch.to_mesh() for patch in self._patches]
         self._image_panel.set_camera_previews(meshes, self._scene.cameras)
 
+    def _ensure_swept_volume(self):
+        if self._swept_volume is not None:
+            return self._swept_volume
+        if self._target1_img is None or self._target2_img is None:
+            raise ValueError("Load both target images before initializing swept-volume pieces.")
+
+        from core.swept_volume import SweptVolume
+
+        self._swept_volume = SweptVolume.from_images(
+            self._target1_img,
+            self._target2_img,
+            self._scene.cameras,
+            hanging_plane_size=self._controls.patches.hanging_plane_size,
+        )
+        print(f"[Swept volume] precomputed {len(self._swept_volume.points)} occupied samples")
+        self._update_hanging_plane_mesh()
+        return self._swept_volume
+
+    def _on_toggle_swept_volume(self) -> None:
+        try:
+            self._ensure_swept_volume()
+        except (ValueError, RuntimeError) as exc:
+            QMessageBox.warning(self, "Swept volume", str(exc))
+            return
+        self._show_swept_volume = not self._show_swept_volume
+        self._update_hanging_plane_mesh()
+        state = "shown" if self._show_swept_volume else "hidden"
+        print(f"[Swept volume] debug mesh {state}")
+
     def _update_hanging_plane_mesh(self) -> None:
-        self._viewport.set_static_meshes([
-            _make_hanging_plane_mesh(self._controls.patches.hanging_plane_size)
-        ])
+        meshes = [_make_hanging_plane_mesh(self._controls.patches.hanging_plane_size)]
+        if self._show_swept_volume and self._swept_volume is not None:
+            meshes.append(self._swept_volume.to_mesh())
+        self._viewport.set_static_meshes(meshes)
 
     def _clear_string_connections(self) -> None:
         for patch in self._patches:
