@@ -174,7 +174,17 @@ class SweptVolume:
         if len(self.points) == 0:
             raise ValueError("Cannot sample from an empty swept volume.")
         rng = rng or np.random.default_rng()
-        base = self.points[int(rng.integers(0, len(self.points)))].copy()
+        return self.sample_point_at_index(int(rng.integers(0, len(self.points))), rng)
+
+    def sample_point_at_index(
+        self,
+        index: int,
+        rng: np.random.Generator | None = None,
+    ) -> np.ndarray:
+        if len(self.points) == 0:
+            raise ValueError("Cannot sample from an empty swept volume.")
+        rng = rng or np.random.default_rng()
+        base = self.points[int(index) % len(self.points)].copy()
         jitter = rng.uniform(-0.45, 0.45, size=3).astype(np.float32) * self.grid_step
         return np.clip(base + jitter, self.bounds_min, self.bounds_max).astype(np.float32)
 

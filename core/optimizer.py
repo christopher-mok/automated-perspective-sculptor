@@ -428,7 +428,7 @@ class SceneOptimizer:
         device: str = "cpu",
         n_per_segment: int = 20,
         silhouette_weight: float = 2.0,
-        negative_space_weight: float = 4.0,
+        negative_space_weight: float = 2.5,  # used to be 4.0
         #overlap_weight: float = 0.05,
         overlap_weight: float = 0.7,
         overlap_margin: float = 0.005,

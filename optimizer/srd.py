@@ -123,6 +123,7 @@ class StochasticRewriteDescent:
         no_effect_image_delta: float = 1e-6,
         rule_violation_tol: float = 1e-4,
         swept_volume: "SweptVolume | None" = None,
+        swept_volume_spawn_fraction: float = 0.75,
     ) -> None:
         self.enabled = enabled
         self.interval = interval
@@ -141,6 +142,9 @@ class StochasticRewriteDescent:
         self.no_effect_image_delta = no_effect_image_delta
         self.rule_violation_tol = rule_violation_tol
         self.swept_volume = swept_volume
+        self.swept_volume_spawn_fraction = float(np.clip(swept_volume_spawn_fraction, 0.0, 1.0))
+        self._swept_point_order = np.empty(0, dtype=np.int64)
+        self._swept_point_cursor = 0
         self.deleted_history: list[dict] = []
         self.stats = SRDStats()
 
@@ -490,8 +494,11 @@ class StochasticRewriteDescent:
                     patch_state=copy.deepcopy(self.deleted_history[hist_idx]),
                 ))
             else:
-                if self.swept_volume is not None:
-                    position = self.swept_volume.sample_point()
+                if (
+                    self.swept_volume is not None
+                    and np.random.random() < self.swept_volume_spawn_fraction
+                ):
+                    position = self._sample_swept_volume_position()
                 else:
                     position = np.random.uniform(
                         -self.scene_box_size * 0.5,
@@ -523,6 +530,22 @@ class StochasticRewriteDescent:
 
         np.random.shuffle(candidates)
         return candidates[:self.candidate_count]
+
+    def _sample_swept_volume_position(self) -> np.ndarray:
+        if self.swept_volume is None:
+            raise ValueError("Swept-volume sampling requires a swept volume.")
+        n_points = len(self.swept_volume.points)
+        if n_points <= 0:
+            raise ValueError("Cannot sample from an empty swept volume.")
+        if (
+            len(self._swept_point_order) != n_points
+            or self._swept_point_cursor >= n_points
+        ):
+            self._swept_point_order = np.random.permutation(n_points)
+            self._swept_point_cursor = 0
+        point_index = int(self._swept_point_order[self._swept_point_cursor])
+        self._swept_point_cursor += 1
+        return self.swept_volume.sample_point_at_index(point_index)
 
     def _sample_split_index(self, model, eligible_indices: Sequence[int]) -> int:
         """Sample split candidates with larger patches more likely."""

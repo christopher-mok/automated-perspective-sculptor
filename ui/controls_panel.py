@@ -680,6 +680,13 @@ class SRDSection(QGroupBox):
         layout.addLayout(self._value_row("Num candidates K", self._candidates_lbl))
         layout.addWidget(self._candidates_slider)
 
+        self._swept_spawn_slider, self._swept_spawn_lbl = _labeled_slider(0, 100, 75, "{}%")
+        self._swept_spawn_slider.valueChanged.connect(
+            lambda v: self._swept_spawn_lbl.setText(f"{v}%")
+        )
+        layout.addLayout(self._value_row("Swept-volume add %", self._swept_spawn_lbl))
+        layout.addWidget(self._swept_spawn_slider)
+
         self._max_patches_slider, self._max_patches_lbl = _labeled_slider(10, 500, 200, "{}")
         self._max_patches_slider.valueChanged.connect(lambda v: self._max_patches_lbl.setText(str(v)))
         layout.addLayout(self._value_row("Max patches", self._max_patches_lbl))
@@ -711,6 +718,7 @@ class SRDSection(QGroupBox):
             "interval": self._propose_slider.value(),
             "rewrite_eval_steps": self._proposal_steps_slider.value(),
             "candidate_count": self._candidates_slider.value(),
+            "swept_volume_spawn_fraction": self._swept_spawn_slider.value() / 100.0,
             "max_patches": self._max_patches_slider.value(),
             "min_patches": self._min_patches_slider.value(),
         }
@@ -730,6 +738,7 @@ class SRDSection(QGroupBox):
             self._propose_slider,
             self._proposal_steps_slider,
             self._candidates_slider,
+            self._swept_spawn_slider,
             self._max_patches_slider,
             self._min_patches_slider,
         ):
