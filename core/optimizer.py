@@ -275,54 +275,6 @@ def patch_overlap_loss(
     return torch.stack(losses).mean()
 
 
-def _camera_mvp_tensor(camera: "Camera", device: str) -> torch.Tensor:
-    view = torch.from_numpy(camera.view_matrix()).to(device=device, dtype=torch.float32)
-    proj = torch.from_numpy(camera.projection_matrix()).to(device=device, dtype=torch.float32)
-    return proj @ view
-
-
-def _patch_camera_bounds_loss(
-    patch: "Patch",
-    camera: "Camera",
-    n_per_segment: int = 6,
-    xy_limit: float = 0.98,
-) -> torch.Tensor:
-    """Soft penalty for patch outline points outside one camera frustum."""
-    pts = patch.sample_spline_world(n_per_segment)
-    ones = torch.ones(len(pts), 1, device=pts.device, dtype=pts.dtype)
-    pts_h = torch.cat([pts, ones], dim=1)
-
-    mvp = _camera_mvp_tensor(camera, str(pts.device)).to(dtype=pts.dtype)
-    clip = pts_h @ mvp.T
-    w = clip[:, 3]
-    w_safe = w.abs().clamp_min(1e-4)
-    ndc = clip[:, :3] / w_safe.unsqueeze(1)
-
-    xy_excess = torch.relu(torch.abs(ndc[:, :2]) - xy_limit)
-    z_excess = torch.relu(torch.abs(ndc[:, 2]) - 1.0)
-    behind = torch.relu(w.new_tensor(1e-4) - w)
-    return xy_excess.square().mean() + z_excess.square().mean() + behind.square().mean()
-
-
-def patch_camera_bounds_loss(
-    patches: Sequence["Patch"],
-    cameras: Sequence["Camera"],
-    xy_limit: float = 0.98,
-) -> torch.Tensor:
-    """Soft penalty for pieces drifting outside either camera view."""
-    if not patches:
-        return torch.zeros(())
-
-    losses: list[torch.Tensor] = []
-    for patch in patches:
-        for camera in cameras:
-            losses.append(_patch_camera_bounds_loss(patch, camera, xy_limit=xy_limit))
-
-    if not losses:
-        return torch.zeros((), device=patches[0].center.device)
-    return torch.stack(losses).mean()
-
-
 def constrain_patch_to_square_xz_bounds(
     patch: "Patch",
     half_size: float,
@@ -433,8 +385,6 @@ class SceneOptimizer:
         overlap_weight: float = 0.7,
         overlap_margin: float = 0.005,
         theta_camera_margin: float = THETA_CAMERA_MARGIN,
-        camera_bounds_weight: float = 0.3,
-        camera_bounds_xy_limit: float = 0.98,
         hanging_plane_size: float = 5.0,
         hanging_plane_y: float = DEFAULT_HANGING_PLANE_Y,
         min_patch_area: float = 0.001,
@@ -461,8 +411,6 @@ class SceneOptimizer:
         self.overlap_margin = overlap_margin
         self.theta_camera_margin = theta_camera_margin
         self.theta_camera_angles = _camera_yaw_angles((camera1, camera2))
-        self.camera_bounds_weight = camera_bounds_weight
-        self.camera_bounds_xy_limit = camera_bounds_xy_limit
         self.hanging_plane_size = hanging_plane_size
         self.hanging_plane_y = hanging_plane_y
         self.min_patch_area = min_patch_area
@@ -604,7 +552,6 @@ class SceneOptimizer:
             "view1_negative_space": float(components["loss1_negative_space"].detach().cpu()),
             "view2_negative_space": float(components["loss2_negative_space"].detach().cpu()),
             "overlap": float(components["overlap"].detach().cpu()),
-            "camera_bounds": float(components["camera_bounds"].detach().cpu()),
             "negative_space_weighted": float(
                 (
                     self.negative_space_weight
@@ -612,7 +559,6 @@ class SceneOptimizer:
                 ).detach().cpu()
             ),
             "overlap_weighted": float((self.overlap_weight * components["overlap"]).detach().cpu()),
-            "camera_bounds_weighted": float((self.camera_bounds_weight * components["camera_bounds"]).detach().cpu()),
         }
 
     def _loss_from_renders(
@@ -658,19 +604,12 @@ class SceneOptimizer:
 
         if patches:
             overlap = patch_overlap_loss(patches, self.overlap_margin)
-            camera_bounds = patch_camera_bounds_loss(
-                patches,
-                (self.camera1, self.camera2),
-                self.camera_bounds_xy_limit,
-            )
         else:
             overlap = torch.zeros((), device=loss1.device)
-            camera_bounds = torch.zeros((), device=loss1.device)
         loss = (
             loss1
             + loss2
             + self.overlap_weight * overlap
-            + self.camera_bounds_weight * camera_bounds
         )
         return loss, {
             "loss1": loss1,
@@ -680,7 +619,6 @@ class SceneOptimizer:
             "loss1_negative_space": loss1_negative_space,
             "loss2_negative_space": loss2_negative_space,
             "overlap": overlap,
-            "camera_bounds": camera_bounds,
         }
 
     def _capture_patch_shape_states(self) -> dict[int, list[torch.Tensor]]:

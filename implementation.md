@@ -1469,25 +1469,6 @@ How it works:
 - Computes allowed distance from patch radii plus margin.
 - Penalizes positive overlap with squared error.
 
-### `_camera_mvp_tensor(camera, device)`
-
-What it does:
-
-- Builds a torch MVP matrix for a camera.
-
-Returns:
-
-- A `4x4` tensor.
-
-Why it matters:
-
-- Projection-based penalties need camera clip coordinates.
-
-How it works:
-
-- Multiplies camera projection and view matrices.
-- Converts the result to a torch tensor.
-
 ### `_patch_projected_area(patch, camera, device)`
 
 What it does:
@@ -1525,28 +1506,6 @@ How it works:
 
 - Computes projected area for each patch in each camera.
 - Penalizes area below `min_area`.
-
-### `patch_camera_bounds_loss(patches, cameras, xy_limit)`
-
-What it does:
-
-- Penalizes patch outline points that drift outside either camera view.
-
-Returns:
-
-- A scalar torch tensor.
-
-Why it matters:
-
-- Keeps pieces from solving the loss by moving out of frame or beyond the camera frustum.
-
-How it works:
-
-- Samples each patch outline in world space.
-- Projects outline points into each camera's normalized device coordinates.
-- Penalizes X/Y values outside `[-xy_limit, xy_limit]`.
-- Penalizes depth values outside the camera clip range.
-- Penalizes points behind the camera.
 
 ### `constrain_theta_to_camera_band(theta, camera_angles, margin)`
 
@@ -1957,21 +1916,6 @@ Significance:
 
 - Prevents patches from disappearing by becoming too small or nearly invisible from the cameras.
 
-### Camera-bounds penalty
-
-```text
-ndc = project(patch_outline_points, camera)
-camera_bounds_loss =
-    mean(relu(abs(ndc_x) - xy_limit)^2)
-  + mean(relu(abs(ndc_y) - xy_limit)^2)
-  + mean(relu(abs(ndc_z) - 1)^2)
-  + mean(relu(epsilon - clip_w)^2)
-```
-
-Significance:
-
-- Discourages pieces from drifting outside either camera frame, behind a camera, or beyond the camera clip range.
-
 ### Total loss
 
 The main optimizer step combines terms as:
@@ -1982,7 +1926,6 @@ total_loss =
   + view2_total
   + overlap_weight * overlap_loss
   + visibility_weight * visibility_loss
-  + camera_bounds_weight * camera_bounds_loss
   + patch_count_loss
 ```
 
@@ -1992,8 +1935,6 @@ Current important weights are set in `SceneOptimizer.__init__()`:
 - `negative_space_weight`
 - `overlap_weight`
 - `visibility_weight`
-- `camera_bounds_weight`
-- `camera_bounds_xy_limit`
 - `min_projected_area`
 - `overlap_margin`
 - `lambda_count`, controlled by the SRD patch count penalty slider.

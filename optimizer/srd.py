@@ -375,19 +375,7 @@ class StochasticRewriteDescent:
             return True
         if any(float(cp.handle_scale.detach().cpu()) <= 0.0 for cp in patch.control_points):
             return True
-        if patch.is_self_intersecting():
-            return True
-        with torch.no_grad():
-            _, components = model._loss_from_renders(
-                *model.renderer.render_both(
-                    [patch],
-                    model.camera1,
-                    model.camera2,
-                    model.render_resolutions,
-                ),
-                [patch],
-            )
-        return float(components["camera_bounds"].detach().cpu()) > self.rule_violation_tol
+        return patch.is_self_intersecting()
 
     def _patch_contributes_to_either_image(self, model, patch_index: int) -> bool:
         patch = model.patches[patch_index]
