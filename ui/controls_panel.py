@@ -984,6 +984,7 @@ class ExportSection(QGroupBox):
     import_requested = pyqtSignal()
     strings_requested = pyqtSignal()
     swept_volume_requested = pyqtSignal()
+    split_test_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Export", parent)
@@ -1031,14 +1032,24 @@ class ExportSection(QGroupBox):
         self._swept_volume_btn.clicked.connect(self.swept_volume_requested.emit)
         layout.addWidget(self._swept_volume_btn)
 
+        self._split_test_btn = QPushButton("Visualize split test")
+        self._split_test_btn.setStyleSheet(
+            "QPushButton { background: #2f4d5f; color: #fff; border-radius: 4px; padding: 6px; }"
+            "QPushButton:hover { background: #3b6178; }"
+            "QPushButton:pressed { background: #254052; }"
+        )
+        self._split_test_btn.clicked.connect(self.split_test_requested.emit)
+        layout.addWidget(self._split_test_btn)
+
         note = QLabel("Import previous designs or export current patches to exports/pieces.json.")
         note.setStyleSheet("color: #666; font-size: 11px; font-style: italic;")
         note.setWordWrap(True)
         layout.addWidget(note)
 
-    def set_enabled(self, enabled: bool) -> None:
+    def set_enabled(self, enabled: bool, debug_enabled: bool = True) -> None:
         self._export_btn.setEnabled(enabled)
         self._strings_btn.setEnabled(enabled)
+        self._split_test_btn.setEnabled(debug_enabled)
 
 
 # ---------------------------------------------------------------------------

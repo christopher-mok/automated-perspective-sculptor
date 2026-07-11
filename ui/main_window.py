@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -249,6 +250,7 @@ class MainWindow(QMainWindow):
         self._controls.export.import_requested.connect(self._on_import_json)
         self._controls.export.strings_requested.connect(self._on_add_strings)
         self._controls.export.swept_volume_requested.connect(self._on_toggle_swept_volume)
+        self._controls.export.split_test_requested.connect(self._on_visualize_split_test)
         self._controls.patches.hanging_plane_size_changed.connect(
             self._on_hanging_plane_size_changed
         )
@@ -857,6 +859,61 @@ class MainWindow(QMainWindow):
         state = "shown" if self._show_swept_volume else "hidden"
         print(f"[Swept volume] debug mesh {state}")
 
+    def _on_visualize_split_test(self) -> None:
+        optimizing = self._worker is not None and self._worker.isRunning()
+        benchmarking = self._benchmark_active
+        if optimizing or benchmarking:
+            QMessageBox.warning(
+                self,
+                "Split test",
+                "Stop optimization or benchmarking before changing the scene.",
+            )
+            return
+
+        try:
+            parent = self._make_split_test_patch()
+            child_a, child_b = parent.split_down_middle(creation_step=0)
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "Split test", str(exc))
+            return
+        self._patches = [child_a, child_b]
+        self._clear_string_connections()
+        self._constrain_patches_to_hanging_plane()
+        self._viewport.set_patches(self._patches)
+        self._update_camera_previews_from_patches()
+        self._controls.srd.set_stats({"patches": len(self._patches)})
+        self._sync_export_enabled()
+        print(
+            "[Split test] spawned one large centered patch and visualized "
+            f"split result as {len(self._patches)} child pieces"
+        )
+
+    def _make_split_test_patch(self):
+        from core.patch import ControlPoint, Patch
+
+        device = self._controls.patches.device
+        radius = max(0.35, self._controls.patches.hanging_plane_size * 0.18)
+        handle_scale = radius * (4.0 / 3.0) * math.tan(math.pi / Patch.N_CONTROL_POINTS)
+        control_points: list[ControlPoint] = []
+        for idx in range(Patch.N_CONTROL_POINTS):
+            angle = 2.0 * math.pi * idx / Patch.N_CONTROL_POINTS - math.pi / 2.0
+            control_points.append(ControlPoint(
+                x=radius * math.cos(angle),
+                y=radius * math.sin(angle),
+                z=0.0,
+                handle_scale=handle_scale,
+                handle_rotation=angle + math.pi / 2.0,
+                device=device,
+            ))
+        return Patch(
+            control_points=control_points,
+            center=[0.0, 0.0, 0.0],
+            theta=0.0,
+            albedo=[1.0, 1.0, 1.0],
+            device=device,
+            label="split_test_parent",
+        )
+
     def _update_hanging_plane_mesh(self) -> None:
         meshes = [_make_hanging_plane_mesh(self._controls.patches.hanging_plane_size)]
         if self._show_swept_volume and self._swept_volume is not None:
@@ -934,7 +991,8 @@ class MainWindow(QMainWindow):
             self._benchmark_active
         )
         self._controls.export.set_enabled(
-            bool(self._patches) and not optimizing and not benchmarking
+            bool(self._patches) and not optimizing and not benchmarking,
+            debug_enabled=not optimizing and not benchmarking,
         )
         self._controls.benchmark.set_available(not optimizing and not benchmarking)
         self._sync_edit_controls()

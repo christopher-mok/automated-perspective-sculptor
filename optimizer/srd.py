@@ -12,6 +12,7 @@ import numpy as np
 import torch
 
 from core.patch import ControlPoint, Patch
+from core.swept_volume import _project_points
 
 if TYPE_CHECKING:
     from core.swept_volume import SweptVolume
@@ -189,7 +190,8 @@ class StochasticRewriteDescent:
                 current_loss_tensor, _ = model._loss_from_renders(render1, render2, model.patches)
                 current_loss = float(current_loss_tensor.detach().cpu())
 
-        candidates = self._sample_rewrites(model, current_step)
+        uncovered_masks = self._uncovered_target_masks(model)
+        candidates = self._sample_rewrites(model, current_step, uncovered_masks)
         scored: list[RewriteCandidate] = []
         for candidate in candidates:
             improvement = self.evaluate_rewrite(model, optimizer, candidate, current_loss)
@@ -471,7 +473,12 @@ class StochasticRewriteDescent:
             return max(1, self.rewrite_eval_steps)
         return 1
 
-    def _sample_rewrites(self, model, current_step: int) -> list[RewriteCandidate]:
+    def _sample_rewrites(
+        self,
+        model,
+        current_step: int,
+        uncovered_masks: tuple[np.ndarray, np.ndarray | None] | None = None,
+    ) -> list[RewriteCandidate]:
         candidates: list[RewriteCandidate] = []
         add_budget = int(round(self.candidate_count * 0.35))
         delete_budget = int(round(self.candidate_count * 0.15))
@@ -498,7 +505,12 @@ class StochasticRewriteDescent:
                     self.swept_volume is not None
                     and np.random.random() < self.swept_volume_spawn_fraction
                 ):
-                    position = self._sample_swept_volume_position()
+                    position = self._sample_guided_swept_volume_position(
+                        model,
+                        uncovered_masks,
+                    )
+                    if position is None:
+                        continue
                 else:
                     position = np.random.uniform(
                         -self.scene_box_size * 0.5,
@@ -530,6 +542,87 @@ class StochasticRewriteDescent:
 
         np.random.shuffle(candidates)
         return candidates[:self.candidate_count]
+
+    def _uncovered_target_masks(self, model) -> tuple[np.ndarray, np.ndarray | None] | None:
+        if self.swept_volume is None:
+            return None
+
+        with torch.no_grad():
+            render1, render2 = model.renderer.render_both(
+                model.patches,
+                model.camera1,
+                model.camera2,
+                model.render_resolutions,
+            )
+
+        target1 = model.target1_mask.detach().cpu().numpy().squeeze() > 0.5
+        alpha1 = self._render_alpha_mask(render1)
+        uncovered1 = target1 & ~alpha1
+
+        uncovered2 = None
+        if model.target2_mask is not None:
+            target2 = model.target2_mask.detach().cpu().numpy().squeeze() > 0.5
+            alpha2 = self._render_alpha_mask(render2)
+            uncovered2 = target2 & ~alpha2
+
+        return uncovered1, uncovered2
+
+    @staticmethod
+    def _render_alpha_mask(render: torch.Tensor, threshold: float = 0.05) -> np.ndarray:
+        image = render.detach().cpu()
+        if image.shape[-1] >= 4:
+            alpha = image[..., 3]
+        else:
+            alpha = image[..., :3].amax(dim=-1)
+        return alpha.numpy() > threshold
+
+    def _sample_guided_swept_volume_position(
+        self,
+        model,
+        uncovered_masks: tuple[np.ndarray, np.ndarray | None] | None,
+        max_attempts: int = 128,
+    ) -> np.ndarray | None:
+        if self.swept_volume is None:
+            return None
+        if uncovered_masks is None or not self._has_uncovered_cells(uncovered_masks):
+            return self._sample_swept_volume_position()
+
+        best_position: np.ndarray | None = None
+        best_score = -np.inf
+        for _ in range(max(1, int(max_attempts))):
+            position = self._sample_swept_volume_position()
+            if not self._point_hits_uncovered(model, position, uncovered_masks):
+                continue
+            score = float(self.swept_volume.score_points(position[None, :])[0])
+            if score > best_score:
+                best_score = score
+                best_position = position
+
+        return best_position
+
+    @staticmethod
+    def _has_uncovered_cells(uncovered_masks: tuple[np.ndarray, np.ndarray | None]) -> bool:
+        uncovered1, uncovered2 = uncovered_masks
+        return bool(np.any(uncovered1) or (uncovered2 is not None and np.any(uncovered2)))
+
+    def _point_hits_uncovered(
+        self,
+        model,
+        point: np.ndarray,
+        uncovered_masks: tuple[np.ndarray, np.ndarray | None],
+    ) -> bool:
+        uncovered1, uncovered2 = uncovered_masks
+        pts = np.asarray(point, dtype=np.float32).reshape((1, 3))
+
+        x1, y1, valid1 = _project_points(pts, model.camera1, uncovered1.shape)
+        hit1 = bool(valid1[0] and uncovered1[y1[0], x1[0]])
+
+        hit2 = False
+        if uncovered2 is not None:
+            x2, y2, valid2 = _project_points(pts, model.camera2, uncovered2.shape)
+            hit2 = bool(valid2[0] and uncovered2[y2[0], x2[0]])
+
+        return hit1 or hit2
 
     def _sample_swept_volume_position(self) -> np.ndarray:
         if self.swept_volume is None:

@@ -75,6 +75,7 @@ class SweptVolume:
     bounds_min: np.ndarray
     bounds_max: np.ndarray
     masks: tuple[np.ndarray, np.ndarray]
+    cell_scores: tuple[np.ndarray, np.ndarray]
     cameras: tuple["Camera", "Camera"]
 
     @classmethod
@@ -95,6 +96,8 @@ class SweptVolume:
 
         mask1 = _foreground_mask(image1)
         mask2 = _foreground_mask(image2)
+        score1 = _silhouette_cell_scores(mask1)
+        score2 = _silhouette_cell_scores(mask2)
         half = max(float(hanging_plane_size) * 0.5, 1e-4)
         bounds_min = np.array([-half, -half, -half], dtype=np.float32)
         bounds_max = np.array([half, half, half], dtype=np.float32)
@@ -134,6 +137,7 @@ class SweptVolume:
             bounds_min=bounds_min,
             bounds_max=bounds_max,
             masks=(mask1, mask2),
+            cell_scores=(score1, score2),
             cameras=(cameras[0], cameras[1]),
         )
 
@@ -169,6 +173,20 @@ class SweptVolume:
                 self.cameras[1],
             )
         return result
+
+    def score_points(self, points: np.ndarray) -> np.ndarray:
+        """Return the weakest per-view silhouette-cell score for each 3D point."""
+        pts = np.asarray(points, dtype=np.float32).reshape((-1, 3))
+        scores = np.full(len(pts), -100.0, dtype=np.float32)
+        x1, y1, valid1 = _project_points(pts, self.cameras[0], self.cell_scores[0].shape)
+        x2, y2, valid2 = _project_points(pts, self.cameras[1], self.cell_scores[1].shape)
+        valid = valid1 & valid2
+        idx = np.where(valid)[0]
+        if len(idx) > 0:
+            view1_scores = self.cell_scores[0][y1[idx], x1[idx]]
+            view2_scores = self.cell_scores[1][y2[idx], x2[idx]]
+            scores[idx] = np.minimum(view1_scores, view2_scores)
+        return scores
 
     def sample_point(self, rng: np.random.Generator | None = None) -> np.ndarray:
         if len(self.points) == 0:
@@ -256,3 +274,68 @@ def _inflate_points(
     unique = np.unique(quantized, axis=0).astype(np.float32)
     inflated = bounds_min + unique * float(grid_step)
     return np.clip(inflated, bounds_min, bounds_max).astype(np.float32)
+
+
+def _silhouette_cell_scores(mask: np.ndarray) -> np.ndarray:
+    """Classify silhouette cells and store an approximate distance-to-edge score."""
+    base_mask = np.asarray(mask, dtype=bool)
+    if base_mask.ndim != 2:
+        base_mask = base_mask.squeeze()
+    h, w = base_mask.shape
+    if h == 0 or w == 0:
+        return np.empty_like(base_mask, dtype=np.float32)
+
+    samples = np.stack([
+        _sample_mask_cells(base_mask, 0.5, 0.5),
+        _sample_mask_cells(base_mask, 0.25, 0.35),
+        _sample_mask_cells(base_mask, 0.75, 0.65),
+    ])
+    sample_count = samples.sum(axis=0)
+    inside = sample_count == samples.shape[0]
+    border = (sample_count > 0) & (sample_count < samples.shape[0])
+
+    padded = np.pad(inside, 1, mode="constant", constant_values=False)
+    neighbors_inside = (
+        padded[:-2, 1:-1]
+        & padded[2:, 1:-1]
+        & padded[1:-1, :-2]
+        & padded[1:-1, 2:]
+    )
+    border |= inside & ~neighbors_inside
+    inside_distance_region = inside & ~border
+
+    inf = np.float32(max(h + w + 1, 1))
+    dist = np.where(border, 0.0, inf).astype(np.float32)
+    for y in range(1, h):
+        dist[y, :] = np.minimum(dist[y, :], dist[y - 1, :] + 1.0)
+    for y in range(h - 2, -1, -1):
+        dist[y, :] = np.minimum(dist[y, :], dist[y + 1, :] + 1.0)
+    for x in range(1, w):
+        dist[:, x] = np.minimum(dist[:, x], dist[:, x - 1] + 1.0)
+    for x in range(w - 2, -1, -1):
+        dist[:, x] = np.minimum(dist[:, x], dist[:, x + 1] + 1.0)
+
+    scores = np.full((h, w), -100.0, dtype=np.float32)
+    scores[inside_distance_region] = dist[inside_distance_region]
+    scores[border] = 0.0
+    return scores
+
+
+def _sample_mask_cells(mask: np.ndarray, x_offset: float, y_offset: float) -> np.ndarray:
+    """Bilinearly sample a binary cell mask at one deterministic in-cell offset."""
+    h, w = mask.shape
+    yy, xx = np.indices((h, w), dtype=np.float32)
+    x = np.clip(xx + float(x_offset) - 0.5, 0.0, max(float(w - 1), 0.0))
+    y = np.clip(yy + float(y_offset) - 0.5, 0.0, max(float(h - 1), 0.0))
+
+    x0 = np.floor(x).astype(np.int32)
+    y0 = np.floor(y).astype(np.int32)
+    x1 = np.clip(x0 + 1, 0, w - 1)
+    y1 = np.clip(y0 + 1, 0, h - 1)
+    tx = x - x0
+    ty = y - y0
+
+    values = mask.astype(np.float32)
+    top = values[y0, x0] * (1.0 - tx) + values[y0, x1] * tx
+    bottom = values[y1, x0] * (1.0 - tx) + values[y1, x1] * tx
+    return (top * (1.0 - ty) + bottom * ty) >= 0.5
