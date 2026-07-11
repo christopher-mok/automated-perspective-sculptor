@@ -2,6 +2,18 @@
 
 This project uses `nvdiffrast`, which must compile a CUDA extension on Windows. The setup below is for Windows with PyTorch built for CUDA 12.8.
 
+`nvdiffrast` is vendored as a git submodule at `nvdiffrast/`. Clone the repo with submodules:
+
+```powershell
+git clone --recurse-submodules <repo-url>
+```
+
+If the repo is already cloned, pull the submodule with:
+
+```powershell
+git submodule update --init --recursive
+```
+
 ## Requirements
 
 - 64-bit Python
@@ -75,7 +87,9 @@ nvcc --version
 From the repo root, run:
 
 ```powershell
-pip install -v git+https://github.com/NVlabs/nvdiffrast.git --no-build-isolation --no-cache-dir
+cd nvdiffrast
+pip install setuptools wheel ninja
+pip install . --no-build-isolation
 ```
 
 ## Verify Installation
