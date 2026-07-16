@@ -755,7 +755,11 @@ class EditSection(QGroupBox):
     piece_selected = pyqtSignal(int)
     nudge_requested = pyqtSignal(float, float, float)
     rotate_requested = pyqtSignal(float)
+    scale_requested = pyqtSignal(float)
+    add_piece_requested = pyqtSignal()
     delete_requested = pyqtSignal()
+
+    SCALE_STEP_FACTOR = 1.1
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Edit", parent)
@@ -777,6 +781,12 @@ class EditSection(QGroupBox):
         )
         self._edit_btn.toggled.connect(self._on_edit_toggled)
         layout.addWidget(self._edit_btn)
+
+        self._add_piece_btn = self._make_action_button(
+            "Add piece at origin",
+            self.add_piece_requested.emit,
+        )
+        layout.addWidget(self._add_piece_btn)
 
         piece_lbl = QLabel("Piece selection")
         piece_lbl.setStyleSheet(_LABEL_STYLE)
@@ -840,6 +850,19 @@ class EditSection(QGroupBox):
         rotate_row.addWidget(self._btn_rot_pos)
         layout.addLayout(rotate_row)
 
+        scale_row = QHBoxLayout()
+        self._btn_scale_down = self._make_action_button(
+            "Scale -",
+            lambda: self.scale_requested.emit(1.0 / self.SCALE_STEP_FACTOR),
+        )
+        self._btn_scale_up = self._make_action_button(
+            "Scale +",
+            lambda: self.scale_requested.emit(self.SCALE_STEP_FACTOR),
+        )
+        scale_row.addWidget(self._btn_scale_down)
+        scale_row.addWidget(self._btn_scale_up)
+        layout.addLayout(scale_row)
+
         self._delete_btn = QPushButton("Delete selected piece")
         self._delete_btn.setStyleSheet(
             "QPushButton { background: #5a2d2d; color: #fff; border-radius: 4px; padding: 6px; }"
@@ -849,7 +872,7 @@ class EditSection(QGroupBox):
         self._delete_btn.clicked.connect(self.delete_requested.emit)
         layout.addWidget(self._delete_btn)
 
-        hint = QLabel("Use edit mode after initialization/import/optimization to nudge, rotate, or delete pieces.")
+        hint = QLabel("Use edit mode after initialization/import/optimization to add, nudge, rotate, scale, or delete pieces.")
         hint.setStyleSheet("color: #777; font-size: 11px;")
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -956,6 +979,7 @@ class EditSection(QGroupBox):
         can_toggle = self._has_pieces and not self._running
         self._edit_btn.setEnabled(can_toggle)
         self._piece_list.setEnabled(can_toggle)
+        self._add_piece_btn.setEnabled(can_toggle and self._edit_btn.isChecked())
 
         active = can_toggle and self._edit_btn.isChecked() and self.selected_piece_index >= 0
         for widget in (
@@ -969,6 +993,8 @@ class EditSection(QGroupBox):
             self._btn_z_pos,
             self._btn_rot_neg,
             self._btn_rot_pos,
+            self._btn_scale_down,
+            self._btn_scale_up,
             self._delete_btn,
         ):
             widget.setEnabled(active)

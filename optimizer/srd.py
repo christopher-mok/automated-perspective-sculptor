@@ -73,10 +73,10 @@ def _small_default_patch(
     albedo: Sequence[float],
     creation_step: int,
     label: str,
+    radius: float = 0.05,
 ) -> Patch:
     """Create a small regular-pentagon patch for SRD additions."""
     control_points: list[ControlPoint] = []
-    radius = 0.05
     handle_scale = radius * (4.0 / 3.0) * math.tan(math.pi / Patch.N_CONTROL_POINTS)
     for idx in range(Patch.N_CONTROL_POINTS):
         angle = 2.0 * math.pi * idx / Patch.N_CONTROL_POINTS - math.pi / 2.0
@@ -125,6 +125,9 @@ class StochasticRewriteDescent:
         rule_violation_tol: float = 1e-4,
         swept_volume: "SweptVolume | None" = None,
         swept_volume_spawn_fraction: float = 0.75,
+        disable_swept_volume_adds: bool = False,
+        loss_only_deletion: bool = False,
+        disable_splitting: bool = False,
     ) -> None:
         self.enabled = enabled
         self.interval = interval
@@ -144,6 +147,11 @@ class StochasticRewriteDescent:
         self.rule_violation_tol = rule_violation_tol
         self.swept_volume = swept_volume
         self.swept_volume_spawn_fraction = float(np.clip(swept_volume_spawn_fraction, 0.0, 1.0))
+        # Ablation switches: disable swept-volume-guided additions, restrict
+        # deletion to loss-improving rewrites only, and disable splitting.
+        self.disable_swept_volume_adds = bool(disable_swept_volume_adds)
+        self.loss_only_deletion = bool(loss_only_deletion)
+        self.disable_splitting = bool(disable_splitting)
         self._swept_point_order = np.empty(0, dtype=np.int64)
         self._swept_point_cursor = 0
         self.deleted_history: list[dict] = []
@@ -169,13 +177,18 @@ class StochasticRewriteDescent:
         if not self.enabled or self.interval <= 0 or current_step % self.interval != 0:
             return self.stats
 
-        tiny_deletes = self._tiny_area_delete_rewrites(model)
+        tiny_deletes = (
+            [] if self.loss_only_deletion else self._tiny_area_delete_rewrites(model)
+        )
         if tiny_deletes:
             self._apply_rewrites(model, optimizer, tiny_deletes, current_step)
             self.stats.accepted += len(tiny_deletes)
             self.stats.active = len(model.patches)
 
-        mandatory_deletes = self._mandatory_delete_rewrites(model, current_step)
+        mandatory_deletes = (
+            [] if self.loss_only_deletion
+            else self._mandatory_delete_rewrites(model, current_step)
+        )
         if mandatory_deletes:
             self._apply_rewrites(model, optimizer, mandatory_deletes, current_step)
             self.stats.accepted += len(mandatory_deletes)
@@ -257,7 +270,9 @@ class StochasticRewriteDescent:
         if not self.enabled or len(model.patches) <= 1:
             return stats
 
-        tiny_deletes = self._tiny_area_delete_rewrites(model)
+        tiny_deletes = (
+            [] if self.loss_only_deletion else self._tiny_area_delete_rewrites(model)
+        )
         if tiny_deletes:
             self._apply_rewrites(model, optimizer, tiny_deletes, current_step)
             optimizer = model.optim
@@ -471,6 +486,9 @@ class StochasticRewriteDescent:
         add_budget = int(round(self.candidate_count * 0.35))
         delete_budget = int(round(self.candidate_count * 0.15))
         split_budget = self.candidate_count - add_budget - delete_budget
+        if self.disable_splitting:
+            add_budget += split_budget
+            split_budget = 0
 
         if len(model.patches) >= self.max_patches:
             add_budget = 0
@@ -491,6 +509,7 @@ class StochasticRewriteDescent:
             else:
                 if (
                     self.swept_volume is not None
+                    and not self.disable_swept_volume_adds
                     and np.random.random() < self.swept_volume_spawn_fraction
                 ):
                     position = self._sample_guided_swept_volume_position(
@@ -510,7 +529,10 @@ class StochasticRewriteDescent:
         eligible_delete_indices = [
             idx for idx, patch in enumerate(model.patches)
             if current_step - int(getattr(patch, "creation_step", 0)) >= self.cooldown_steps
-            and float(patch.compute_area().detach().cpu()) <= self.min_patch_area
+            and (
+                self.loss_only_deletion
+                or float(patch.compute_area().detach().cpu()) <= self.min_patch_area
+            )
         ]
         for _ in range(delete_budget):
             if not eligible_delete_indices:
@@ -532,7 +554,7 @@ class StochasticRewriteDescent:
         return candidates[:self.candidate_count]
 
     def _uncovered_target_masks(self, model) -> tuple[np.ndarray, np.ndarray | None] | None:
-        if self.swept_volume is None:
+        if self.swept_volume is None or self.disable_swept_volume_adds:
             return None
 
         with torch.no_grad():

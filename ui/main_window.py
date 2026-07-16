@@ -22,6 +22,7 @@ _HANGING_PLANE_FRAME_THICKNESS = 0.035
 _SCENE_CAMERA_FOV_DEG = 30.22  # 50mm equivalent on a 36x27mm 4:3 sensor.
 _STRING_DASH_LENGTH = 0.08
 _STRING_GAP_LENGTH = 0.05
+_MANUAL_PIECE_RADIUS = 0.25
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _BENCHMARK_PAIRS = (
     ("circle_triangle", "circle.png", "triangle.png"),
@@ -245,6 +246,8 @@ class MainWindow(QMainWindow):
         self._controls.edit.piece_selected.connect(self._on_edit_piece_selected)
         self._controls.edit.nudge_requested.connect(self._on_edit_nudge)
         self._controls.edit.rotate_requested.connect(self._on_edit_rotate)
+        self._controls.edit.scale_requested.connect(self._on_edit_scale)
+        self._controls.edit.add_piece_requested.connect(self._on_edit_add_piece)
         self._controls.edit.delete_requested.connect(self._on_edit_delete)
         self._controls.export.export_requested.connect(self._on_export_json)
         self._controls.export.import_requested.connect(self._on_import_json)
@@ -632,6 +635,65 @@ class MainWindow(QMainWindow):
         print(
             f"[Edit] rotated patch={self._controls.edit.selected_piece_index + 1}, "
             f"delta={delta_degrees:.1f}°"
+        )
+
+    def _on_edit_scale(self, factor: float) -> None:
+        patch = self._selected_patch_for_edit()
+        if patch is None or factor <= 0.0:
+            return
+        import torch
+
+        with torch.no_grad():
+            for cp in patch.control_points:
+                cp.x.mul_(factor)
+                cp.y.mul_(factor)
+                cp.handle_scale.mul_(factor)
+                cp.handle_scale.clamp_(0.01, 2.0)
+        self._constrain_patches_to_hanging_plane()
+        self._clear_string_connections()
+        self._viewport.set_patches(self._patches)
+        self._viewport.set_edit_selection(True, self._controls.edit.selected_piece_index)
+        self._update_camera_previews_from_patches()
+        print(
+            f"[Edit] scaled patch={self._controls.edit.selected_piece_index + 1}, "
+            f"factor={factor:.3f}"
+        )
+
+    def _on_edit_add_piece(self) -> None:
+        if not self._controls.edit.edit_mode_enabled:
+            return
+        if self._worker is not None and self._worker.isRunning():
+            return
+        from optimizer.srd import _small_default_patch
+
+        device = (
+            str(self._patches[0].center.device)
+            if self._patches else self._controls.patches.device
+        )
+        patch = _small_default_patch(
+            np.zeros(3, dtype=np.float32),
+            device,
+            [1.0, 1.0, 1.0],
+            creation_step=0,
+            label=f"manual_{len(self._patches) + 1:04d}",
+            radius=_MANUAL_PIECE_RADIUS,
+        )
+        try:
+            from core.optimizer import snap_patches_to_palette
+
+            snap_patches_to_palette([patch], self._controls.optimization.palette)
+        except ValueError:
+            pass
+        self._patches.append(patch)
+        self._clear_string_connections()
+        self._viewport.set_patches(self._patches)
+        self._update_camera_previews_from_patches()
+        self._controls.srd.set_stats({"patches": len(self._patches)})
+        self._sync_export_enabled()
+        self._controls.edit.set_selected_piece(len(self._patches) - 1)
+        print(
+            f"[Edit] added piece at origin, label={patch.label!r}; "
+            f"total={len(self._patches)}"
         )
 
     def _on_edit_delete(self) -> None:
