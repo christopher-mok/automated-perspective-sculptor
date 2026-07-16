@@ -207,6 +207,7 @@ class MainWindow(QMainWindow):
         self._target1_img: np.ndarray | None = None  # uint8 (H,W,4), padded RGBA
         self._target2_img: np.ndarray | None = None
         self._worker = None
+        self._worker_paused = False
         self._benchmark_worker = None
         self._benchmark_active = False
         self._swept_volume = None
@@ -268,16 +269,20 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_view1_loaded(self, path: str) -> None:
-        self._target1_img = _load_target_image_with_border(path)
-        self._swept_volume = None
-        self._show_swept_volume = False
+        new_image = _load_target_image_with_border(path)
+        # Keep the cached swept volume when the target content is unchanged
+        # (e.g. re-selecting the same image while iterating on a design).
+        if self._target1_img is None or not np.array_equal(new_image, self._target1_img):
+            self._clear_swept_volume_cache()
+        self._target1_img = new_image
         self._update_hanging_plane_mesh()
         print(f"[View 1 target] loaded: {path}")
 
     def _on_view2_loaded(self, path: str) -> None:
-        self._target2_img = _load_target_image_with_border(path)
-        self._swept_volume = None
-        self._show_swept_volume = False
+        new_image = _load_target_image_with_border(path)
+        if self._target2_img is None or not np.array_equal(new_image, self._target2_img):
+            self._clear_swept_volume_cache()
+        self._target2_img = new_image
         self._update_hanging_plane_mesh()
         print(f"[View 2 target] loaded: {path}")
 
@@ -348,6 +353,12 @@ class MainWindow(QMainWindow):
         self._viewport.set_patches(self._patches)
         self._update_camera_previews_from_patches()
 
+        if self._swept_volume is None and self._target2_img is not None:
+            try:
+                self._ensure_swept_volume()
+            except ValueError as exc:
+                print(f"[Swept volume] unavailable, continuing without it: {exc}")
+
         self._optimization_run_until_convergence = opt.run_until_convergence
         self._worker = OptimizationWorker(
             patches=self._patches,
@@ -371,6 +382,7 @@ class MainWindow(QMainWindow):
         self._worker.step_completed.connect(self._on_optimization_step)
         self._worker.failed.connect(self._on_optimization_failed)
         self._worker.optimization_finished.connect(self._on_optimization_finished)
+        self._worker.paused_state_changed.connect(self._on_worker_paused_changed)
 
         self._controls.optimization.set_running(True)
         self._controls.patches.set_running(True)
@@ -561,6 +573,30 @@ class MainWindow(QMainWindow):
         self._worker.set_paused(paused)
         print("[Optimization] paused" if paused else "[Optimization] resumed")
 
+    def _on_worker_paused_changed(self, paused: bool) -> None:
+        """Worker confirmed it entered/left the pause wait loop.
+
+        Piece editing unlocks only once the step loop is genuinely idle, and
+        locks again the moment optimization resumes.
+        """
+        self._worker_paused = paused
+        self._sync_edit_controls()
+        if paused:
+            print("[Edit] optimization idle — piece editing unlocked")
+
+    def _piece_editing_blocked(self) -> bool:
+        """True while pieces must not be mutated from the UI."""
+        if self._benchmark_active:
+            return True
+        if self._worker is None or not self._worker.isRunning():
+            return False
+        return not self._worker_paused
+
+    def _notify_worker_patches_modified(self) -> None:
+        """Tell a paused worker that the piece list changed shape."""
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.notify_patches_modified()
+
     def _on_palette_changed(self) -> None:
         if not self._patches:
             return
@@ -575,8 +611,7 @@ class MainWindow(QMainWindow):
         self._update_camera_previews_from_patches()
 
     def _on_edit_mode_toggled(self, enabled: bool) -> None:
-        optimizing = self._worker is not None and self._worker.isRunning()
-        if enabled and (optimizing or not self._patches):
+        if enabled and (self._piece_editing_blocked() or not self._patches):
             self._controls.edit.set_edit_mode(False)
             return
         self._viewport.set_edit_selection(
@@ -662,7 +697,7 @@ class MainWindow(QMainWindow):
     def _on_edit_add_piece(self) -> None:
         if not self._controls.edit.edit_mode_enabled:
             return
-        if self._worker is not None and self._worker.isRunning():
+        if self._piece_editing_blocked():
             return
         from optimizer.srd import _small_default_patch
 
@@ -685,6 +720,7 @@ class MainWindow(QMainWindow):
         except ValueError:
             pass
         self._patches.append(patch)
+        self._notify_worker_patches_modified()
         self._clear_string_connections()
         self._viewport.set_patches(self._patches)
         self._update_camera_previews_from_patches()
@@ -699,10 +735,24 @@ class MainWindow(QMainWindow):
     def _on_edit_delete(self) -> None:
         if not self._controls.edit.edit_mode_enabled:
             return
+        if self._piece_editing_blocked():
+            return
         index = self._controls.edit.selected_piece_index
         if index < 0 or index >= len(self._patches):
             return
+        if (
+            self._worker is not None
+            and self._worker.isRunning()
+            and len(self._patches) <= 1
+        ):
+            QMessageBox.warning(
+                self,
+                "Delete piece",
+                "Keep at least one piece while optimization is paused.",
+            )
+            return
         removed = self._patches.pop(index)
+        self._notify_worker_patches_modified()
         self._clear_string_connections()
         self._viewport.set_patches(self._patches)
         self._update_camera_previews_from_patches()
@@ -845,6 +895,9 @@ class MainWindow(QMainWindow):
             print(f"[Import] failed: {exc}")
             return
 
+        # Importing only replaces the pieces; the cached swept volume stays
+        # valid (it depends on the target images, not the pieces) so users
+        # can tweak a JSON, re-import, and continue without a rebuild.
         self._viewport.set_patches(self._patches)
         self._update_string_lines()
         self._update_camera_previews_from_patches()
@@ -855,10 +908,15 @@ class MainWindow(QMainWindow):
             "Import complete",
             f"Loaded {len(self._patches)} patches from {path}",
         )
-        print(f"[Import] loaded {len(self._patches)} patches from {path}")
+        cache_note = (
+            "swept volume cache preserved"
+            if self._swept_volume is not None else "no swept volume cached"
+        )
+        print(f"[Import] loaded {len(self._patches)} patches from {path} ({cache_note})")
 
     def _reset_state(self) -> None:
         self._worker = None
+        self._worker_paused = False
         self._optimization_run_until_convergence = False
         self._reset_after_worker_stops = False
         self._patches = []
@@ -1021,6 +1079,7 @@ class MainWindow(QMainWindow):
                 constrain_patch_to_square_xz_bounds(patch, half)
 
     def _on_optimization_failed(self, message: str) -> None:
+        self._worker_paused = False
         if self._reset_after_worker_stops:
             self._reset_state()
             return
@@ -1032,6 +1091,7 @@ class MainWindow(QMainWindow):
         print(f"[Optimization] failed: {message}")
 
     def _on_optimization_finished(self, metrics: object) -> None:
+        self._worker_paused = False
         if self._reset_after_worker_stops:
             self._reset_state()
             return
@@ -1058,12 +1118,8 @@ class MainWindow(QMainWindow):
         self._sync_edit_controls()
 
     def _sync_edit_controls(self) -> None:
-        optimizing = self._worker is not None and self._worker.isRunning()
-        benchmarking = (
-            self._benchmark_active
-        )
         labels = self._build_piece_labels()
-        self._controls.edit.set_running(optimizing or benchmarking)
+        self._controls.edit.set_running(self._piece_editing_blocked())
         self._controls.edit.set_piece_labels(labels)
         self._viewport.set_edit_selection(
             self._controls.edit.edit_mode_enabled,
@@ -1080,7 +1136,7 @@ class MainWindow(QMainWindow):
     def _selected_patch_for_edit(self):
         if not self._controls.edit.edit_mode_enabled:
             return None
-        if self._worker is not None and self._worker.isRunning():
+        if self._piece_editing_blocked():
             return None
         index = self._controls.edit.selected_piece_index
         if index < 0 or index >= len(self._patches):

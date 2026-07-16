@@ -872,7 +872,11 @@ class EditSection(QGroupBox):
         self._delete_btn.clicked.connect(self.delete_requested.emit)
         layout.addWidget(self._delete_btn)
 
-        hint = QLabel("Use edit mode after initialization/import/optimization to add, nudge, rotate, scale, or delete pieces.")
+        hint = QLabel(
+            "Use edit mode after initialization/import/optimization — or while "
+            "optimization is paused — to add, nudge, rotate, scale, or delete "
+            "pieces. Changes made while paused carry into the optimizer."
+        )
         hint.setStyleSheet("color: #777; font-size: 11px;")
         hint.setWordWrap(True)
         layout.addWidget(hint)

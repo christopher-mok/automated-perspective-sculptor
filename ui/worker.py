@@ -18,6 +18,7 @@ class OptimizationWorker(QThread):
     step_completed = pyqtSignal(int, object, object)  # step, metrics, meshes
     failed = pyqtSignal(str)
     optimization_finished = pyqtSignal(object)
+    paused_state_changed = pyqtSignal(bool)  # True once the step loop is idle
 
     def __init__(
         self,
@@ -59,6 +60,7 @@ class OptimizationWorker(QThread):
         self._swept_volume = swept_volume
         self._stop_requested = False
         self._pause_requested = False
+        self._patches_modified = False
 
     def request_stop(self) -> None:
         self._stop_requested = True
@@ -67,9 +69,30 @@ class OptimizationWorker(QThread):
     def set_paused(self, paused: bool) -> None:
         self._pause_requested = paused
 
+    def notify_patches_modified(self) -> None:
+        """Mark that pieces were added/removed while paused.
+
+        The optimizer's parameter groups are rebuilt before the next step so
+        edits made in the UI carry through to the running optimization.
+        """
+        self._patches_modified = True
+
     def _wait_if_paused(self) -> None:
+        if not self._pause_requested or self._stop_requested:
+            return
+        # Signal only once the current step has finished, so the UI enables
+        # piece editing only while the optimizer is genuinely idle.
+        self.paused_state_changed.emit(True)
         while self._pause_requested and not self._stop_requested:
             time.sleep(0.05)
+        self.paused_state_changed.emit(False)
+
+    def _sync_external_edits(self, optimizer: SceneOptimizer) -> None:
+        """Fold in piece list edits made from the UI while paused."""
+        if not self._patches_modified:
+            return
+        self._patches_modified = False
+        optimizer.rebuild_optim()
 
     def run(self) -> None:
         try:
@@ -97,6 +120,7 @@ class OptimizationWorker(QThread):
                     self._wait_if_paused()
                     if self._stop_requested:
                         break
+                    self._sync_external_edits(optimizer)
                     step_idx += 1
                     last_metrics = optimizer.step(step_idx, self._n_steps)
                     self.step_completed.emit(
@@ -112,6 +136,7 @@ class OptimizationWorker(QThread):
                     self._wait_if_paused()
                     if self._stop_requested:
                         break
+                    self._sync_external_edits(optimizer)
                     last_metrics = optimizer.step(step_idx, self._n_steps)
                     self.step_completed.emit(
                         step_idx,

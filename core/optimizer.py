@@ -452,6 +452,19 @@ class SceneOptimizer:
         else:
             self.srd = None
 
+    def rebuild_optim(self) -> None:
+        """Recreate the optimizer after the patch list was edited externally.
+
+        Required when pieces are added or deleted outside the optimization
+        loop (e.g. UI edits while paused) so Adam tracks the current
+        parameter set. No-op when there are no patches left.
+        """
+        if not self.patches:
+            return
+        defaults = self.optim.defaults.copy()
+        self.optim = self.optim.__class__(_parameter_groups(self.patches), **defaults)
+        self._post_step_constraints()
+
     def step(self, step_idx: int = 1, total_steps: int = 1) -> dict[str, float]:
         smallest_area = self._smallest_patch_area()
         metrics = self._continuous_step_with_optimizer(self.optim, step_idx, total_steps)
