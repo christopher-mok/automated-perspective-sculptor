@@ -115,7 +115,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--steps", type=int, default=500, help="Optimization steps per trial.")
     parser.add_argument("--n-patches", type=int, default=20, help="Initial patch count.")
-    parser.add_argument("--lr", type=float, default=3.0e-3, help="Learning rate.")
+    parser.add_argument("--lr", type=float, default=3.5e-3, help="Learning rate.")
     parser.add_argument("--device", default="cpu", help="PyTorch device string.")
     parser.add_argument("--palette", default="", help="Palette, e.g. '#111111,#f4d35e'.")
     parser.add_argument("--hanging-plane-size", type=float, default=5.0)
@@ -133,7 +133,20 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Report/render directory (default: results/<mode>_<timestamp>).",
     )
+    parser.add_argument(
+        "--output-file",
+        default="output.txt",
+        help="Output report filename (default: output.txt).",
+    )
     return parser.parse_args()
+
+
+def _save_loss_csv(output_path: Path, trial_number: int, loss_history: list[tuple[int, float]]) -> None:
+    """Save loss over steps as CSV for a trial."""
+    lines = ["step,loss"]
+    for step, loss in loss_history:
+        lines.append(f"{step},{loss:.6f}")
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _trial_report_lines(trial: dict) -> list[str]:
@@ -233,7 +246,7 @@ def main() -> None:
             / f"{args.mode}_{started.strftime('%Y%m%d_%H%M%S')}"
         )
     output_dir.mkdir(parents=True, exist_ok=True)
-    report_path = output_dir / "output.txt"
+    report_path = output_dir / args.output_file
 
     import torch
 
@@ -308,8 +321,11 @@ def main() -> None:
         )
 
         optimization_started = time.perf_counter()
+        loss_history = []
         for step_index in range(1, args.steps + 1):
             step_metrics = optimizer.step(step_index, args.steps)
+            if step_index % 10 == 0 or step_index == 1:
+                loss_history.append((step_index, float(step_metrics['loss'])))
             if step_index % 50 == 0 or step_index == args.steps:
                 print(
                     f"  step {step_index}/{args.steps}: "
@@ -347,6 +363,10 @@ def main() -> None:
             ),
         }
         trials.append(trial)
+
+        # Save loss history CSV
+        csv_path = output_dir / f"trial{trial_number}_loss.csv"
+        _save_loss_csv(csv_path, trial_number, loss_history)
         print(
             f"[Trial {trial_number}] done: loss={metrics['loss']:.6f}, "
             f"time={trial['time_seconds']:.1f}s"

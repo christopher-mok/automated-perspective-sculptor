@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout 120 python compare_srd.py --target1 images/horse.png --target2 images/circle.png --trials 1 --steps 20 --no-renders --output-file comparison_results.txt)"
+    ]
+  }
+}
