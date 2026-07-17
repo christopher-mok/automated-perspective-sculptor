@@ -140,6 +140,13 @@ def _parse_args() -> argparse.Namespace:
         help="Skip saving final per-trial render images.",
     )
     parser.add_argument(
+        "--final-render-scale",
+        type=int,
+        default=4,
+        help="Resolution multiplier for the saved final camera views "
+             "(relative to the 192x256 optimization resolution).",
+    )
+    parser.add_argument(
         "--output-dir",
         default=None,
         help="Report/render directory (default: results/<mode>_<timestamp>).",
@@ -358,6 +365,21 @@ def main() -> None:
 
         metrics, render1, render2 = optimizer.evaluate_snapshot()
         if not args.no_renders:
+            scale = max(1, args.final_render_scale)
+            if scale > 1:
+                final_resolution = (
+                    optimizer.resolution[0] * scale,
+                    optimizer.resolution[1] * scale,
+                )
+                with torch.no_grad():
+                    render1, render2 = optimizer.renderer.render_both(
+                        optimizer.patches,
+                        cameras[0],
+                        cameras[1],
+                        final_resolution,
+                    )
+                render1 = render1.detach().cpu()
+                render2 = render2.detach().cpu()
             _save_render(render1, output_dir / f"trial{trial_number}_view1.png")
             _save_render(render2, output_dir / f"trial{trial_number}_view2.png")
 
