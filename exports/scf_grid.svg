@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="12in" height="12in" viewBox="0 0 12 12">
+<rect x="0" y="0" width="12" height="12" fill="none" stroke="rgb(255,0,0)" stroke-width="0.01"/>
+<g id="P01_strings">
+<line x1="6.389237" y1="2.646716" x2="6.500293" y2="2.23225" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="6.444765" y="2.339483" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P01</text>
+<circle cx="6.389237" cy="2.646716" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.389237" y="2.838716" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx240mm</text>
+<circle cx="6.500293" cy="2.23225" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.500293" y="2.42425" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx237mm</text>
+</g>
+<g id="P02_strings">
+<line x1="6.360394" y1="7.160874" x2="6.643427" y2="7.83857" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="6.50191" y="7.399722" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P02</text>
+<circle cx="6.360394" cy="7.160874" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.360394" y="7.352874" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx160mm</text>
+<circle cx="6.643427" cy="7.83857" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.643427" y="8.03057" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx161mm</text>
+</g>
+<g id="P03_strings">
+<line x1="4.095227" y1="5.138973" x2="4.787304" y2="4.678277" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="4.441265" y="4.808625" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P03</text>
+<circle cx="4.095227" cy="5.138973" r="0.035" fill="rgb(0,0,0)"/>
+<text x="4.095227" y="5.330973" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx152mm</text>
+<circle cx="4.787304" cy="4.678277" r="0.035" fill="rgb(0,0,0)"/>
+<text x="4.787304" y="4.870277" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx163mm</text>
+</g>
+<g id="P04_strings">
+<line x1="11.597205" y1="6.705736" x2="11.728205" y2="6.930154" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="11.662705" y="6.717945" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P04</text>
+<circle cx="11.597205" cy="6.705736" r="0.035" fill="rgb(0,0,0)"/>
+<text x="11.597205" y="6.897736" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx193mm</text>
+<circle cx="11.728205" cy="6.930154" r="0.035" fill="rgb(0,0,0)"/>
+<text x="11.728205" y="7.122154" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx201mm</text>
+</g>
+<g id="P05_strings">
+<line x1="5.424789" y1="4.696347" x2="5.880645" y2="5.19104" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="5.652717" y="4.843693" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P05</text>
+<circle cx="5.424789" cy="4.696347" r="0.035" fill="rgb(0,0,0)"/>
+<text x="5.424789" y="4.888347" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx172mm</text>
+<circle cx="5.880645" cy="5.19104" r="0.035" fill="rgb(0,0,0)"/>
+<text x="5.880645" y="5.38304" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx178mm</text>
+</g>
+<g id="P06_strings">
+<line x1="11.849242" y1="8.387867" x2="11.931581" y2="8.691542" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="11.890412" y="8.439704" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P06</text>
+<circle cx="11.849242" cy="8.387867" r="0.035" fill="rgb(0,0,0)"/>
+<text x="11.849242" y="8.579867" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx200mm</text>
+<circle cx="11.931581" cy="8.691542" r="0.035" fill="rgb(0,0,0)"/>
+<text x="11.931581" y="8.883542" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx193mm</text>
+</g>
+<g id="P07_strings">
+<line x1="5.918959" y1="9.385051" x2="6.923031" y2="9.654091" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="6.420995" y="9.419571" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P07</text>
+<circle cx="5.918959" cy="9.385051" r="0.035" fill="rgb(0,0,0)"/>
+<text x="5.918959" y="9.577051" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx134mm</text>
+<circle cx="6.923031" cy="9.654091" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.923031" y="9.846091" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx148mm</text>
+</g>
+<g id="P08_strings">
+<line x1="5.519004" y1="2.298961" x2="6.57057" y2="2.580727" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="6.044787" y="2.339844" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P08</text>
+<circle cx="5.519004" cy="2.298961" r="0.035" fill="rgb(0,0,0)"/>
+<text x="5.519004" y="2.490961" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx140mm</text>
+<circle cx="6.57057" cy="2.580727" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.57057" y="2.772727" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx142mm</text>
+</g>
+<g id="P09_strings">
+<line x1="10.598275" y1="3.374779" x2="10.79228" y2="4.069793" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="10.695278" y="3.622286" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P09</text>
+<circle cx="10.598275" cy="3.374779" r="0.035" fill="rgb(0,0,0)"/>
+<text x="10.598275" y="3.566779" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx151mm</text>
+<circle cx="10.79228" cy="4.069793" r="0.035" fill="rgb(0,0,0)"/>
+<text x="10.79228" y="4.261793" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx152mm</text>
+</g>
+<g id="P10_strings">
+<line x1="11.798811" y1="8.064811" x2="11.932852" y2="8.564071" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="11.865832" y="8.214441" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P10</text>
+<circle cx="11.798811" cy="8.064811" r="0.035" fill="rgb(0,0,0)"/>
+<text x="11.798811" y="8.256811" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx156mm</text>
+<circle cx="11.932852" cy="8.564071" r="0.035" fill="rgb(0,0,0)"/>
+<text x="11.932852" y="8.756071" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx157mm</text>
+</g>
+<g id="P11_strings">
+<line x1="3.307615" y1="3.001496" x2="3.461438" y2="3.524014" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="3.384527" y="3.162755" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P11</text>
+<circle cx="3.307615" cy="3.001496" r="0.035" fill="rgb(0,0,0)"/>
+<text x="3.307615" y="3.193496" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx197mm</text>
+<circle cx="3.461438" cy="3.524014" r="0.035" fill="rgb(0,0,0)"/>
+<text x="3.461438" y="3.716014" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx200mm</text>
+</g>
+<g id="P12_strings">
+<line x1="4.20607" y1="1.649444" x2="4.999634" y2="1.862079" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="4.602852" y="1.655762" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P12</text>
+<circle cx="4.20607" cy="1.649444" r="0.035" fill="rgb(0,0,0)"/>
+<text x="4.20607" y="1.841444" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx245mm</text>
+<circle cx="4.999634" cy="1.862079" r="0.035" fill="rgb(0,0,0)"/>
+<text x="4.999634" y="2.054079" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx257mm</text>
+</g>
+<g id="P13_strings">
+<line x1="8.533025" y1="8.491938" x2="9.351576" y2="9.00824" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="8.9423" y="8.650089" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P13</text>
+<circle cx="8.533025" cy="8.491938" r="0.035" fill="rgb(0,0,0)"/>
+<text x="8.533025" y="8.683938" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx188mm</text>
+<circle cx="9.351576" cy="9.00824" r="0.035" fill="rgb(0,0,0)"/>
+<text x="9.351576" y="9.20024" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx178mm</text>
+</g>
+<g id="P14_strings">
+<line x1="3.486888" y1="4.576239" x2="3.636724" y2="5.135432" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="3.561806" y="4.755836" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P14</text>
+<circle cx="3.486888" cy="4.576239" r="0.035" fill="rgb(0,0,0)"/>
+<text x="3.486888" y="4.768239" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx190mm</text>
+<circle cx="3.636724" cy="5.135432" r="0.035" fill="rgb(0,0,0)"/>
+<text x="3.636724" y="5.327432" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx192mm</text>
+</g>
+<g id="P15_strings">
+<line x1="6.570018" y1="9.767146" x2="6.729227" y2="9.338559" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="6.649623" y="9.452852" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P15</text>
+<circle cx="6.570018" cy="9.767146" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.570018" y="9.959146" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx234mm</text>
+<circle cx="6.729227" cy="9.338559" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.729227" y="9.530559" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx235mm</text>
+</g>
+<g id="P16_strings">
+<line x1="11.504021" y1="6.817555" x2="11.62715" y2="7.276988" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="11.565586" y="6.947272" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P16</text>
+<circle cx="11.504021" cy="6.817555" r="0.035" fill="rgb(0,0,0)"/>
+<text x="11.504021" y="7.009555" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx155mm</text>
+<circle cx="11.62715" cy="7.276988" r="0.035" fill="rgb(0,0,0)"/>
+<text x="11.62715" y="7.468988" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx155mm</text>
+</g>
+<g id="P17_strings">
+<line x1="6.694413" y1="5.717556" x2="7.773556" y2="5.050576" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="7.233984" y="5.284066" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P17</text>
+<circle cx="6.694413" cy="5.717556" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.694413" y="5.909556" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx133mm</text>
+<circle cx="7.773556" cy="5.050576" r="0.035" fill="rgb(0,0,0)"/>
+<text x="7.773556" y="5.242576" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx145mm</text>
+</g>
+<g id="P18_strings">
+<line x1="6.931636" y1="3.808791" x2="8.067975" y2="3.00076" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="7.499806" y="3.304775" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P18</text>
+<circle cx="6.931636" cy="3.808791" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.931636" y="4.000791" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx233mm</text>
+<circle cx="8.067975" cy="3.00076" r="0.035" fill="rgb(0,0,0)"/>
+<text x="8.067975" y="3.19276" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx218mm</text>
+</g>
+<g id="P19_strings">
+<line x1="6.795868" y1="5.461919" x2="6.945599" y2="4.903116" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="6.870734" y="5.082518" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P19</text>
+<circle cx="6.795868" cy="5.461919" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.795868" y="5.653919" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx261mm</text>
+<circle cx="6.945599" cy="4.903116" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.945599" y="5.095116" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx259mm</text>
+</g>
+<g id="P20_strings">
+<line x1="5.276228" y1="6.350403" x2="5.522286" y2="5.840196" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="5.399257" y="5.9953" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P20</text>
+<circle cx="5.276228" cy="6.350403" r="0.035" fill="rgb(0,0,0)"/>
+<text x="5.276228" y="6.542403" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx134mm</text>
+<circle cx="5.522286" cy="5.840196" r="0.035" fill="rgb(0,0,0)"/>
+<text x="5.522286" y="6.032196" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx129mm</text>
+</g>
+<g id="P21_strings">
+<line x1="4.941449" y1="10.283868" x2="5.088891" y2="10.244358" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="5.01517" y="10.164113" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P21</text>
+<circle cx="4.941449" cy="10.283868" r="0.035" fill="rgb(0,0,0)"/>
+<text x="4.941449" y="10.475868" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx216mm</text>
+<circle cx="5.088891" cy="10.244358" r="0.035" fill="rgb(0,0,0)"/>
+<text x="5.088891" y="10.436358" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx216mm</text>
+</g>
+<g id="P22_strings">
+<line x1="6.896159" y1="6.336493" x2="7.018259" y2="5.897772" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="6.957209" y="6.017133" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P22</text>
+<circle cx="6.896159" cy="6.336493" r="0.035" fill="rgb(0,0,0)"/>
+<text x="6.896159" y="6.528493" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx228mm</text>
+<circle cx="7.018259" cy="5.897772" r="0.035" fill="rgb(0,0,0)"/>
+<text x="7.018259" y="6.089772" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx229mm</text>
+</g>
+<g id="P23_strings">
+<line x1="11.833784" y1="8.039097" x2="11.921996" y2="7.709885" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="11.87789" y="7.774491" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P23</text>
+<circle cx="11.833784" cy="8.039097" r="0.035" fill="rgb(0,0,0)"/>
+<text x="11.833784" y="8.231097" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx211mm</text>
+<circle cx="11.921996" cy="7.709885" r="0.035" fill="rgb(0,0,0)"/>
+<text x="11.921996" y="7.901885" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx220mm</text>
+</g>
+<g id="P24_strings">
+<line x1="3.243674" y1="6.043307" x2="3.547167" y2="5.837659" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="3.39542" y="5.840483" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P24</text>
+<circle cx="3.243674" cy="6.043307" r="0.035" fill="rgb(0,0,0)"/>
+<text x="3.243674" y="6.235307" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx155mm</text>
+<circle cx="3.547167" cy="5.837659" r="0.035" fill="rgb(0,0,0)"/>
+<text x="3.547167" y="6.029659" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx151mm</text>
+</g>
+<g id="P25_strings">
+<line x1="4.869759" y1="6.393047" x2="5.274341" y2="5.960482" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="5.07205" y="6.076765" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P25</text>
+<circle cx="4.869759" cy="6.393047" r="0.035" fill="rgb(0,0,0)"/>
+<text x="4.869759" y="6.585047" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx167mm</text>
+<circle cx="5.274341" cy="5.960482" r="0.035" fill="rgb(0,0,0)"/>
+<text x="5.274341" y="6.152482" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx167mm</text>
+</g>
+<g id="P26_strings">
+<line x1="4.078666" y1="6.489" x2="4.283813" y2="6.208953" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="4.181239" y="6.248976" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P26</text>
+<circle cx="4.078666" cy="6.489" r="0.035" fill="rgb(0,0,0)"/>
+<text x="4.078666" y="6.681" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx153mm</text>
+<circle cx="4.283813" cy="6.208953" r="0.035" fill="rgb(0,0,0)"/>
+<text x="4.283813" y="6.400953" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx153mm</text>
+</g>
+<g id="P27_strings">
+<line x1="8.604099" y1="3.984831" x2="8.794272" y2="3.933875" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="8.699185" y="3.859353" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P27</text>
+<circle cx="8.604099" cy="3.984831" r="0.035" fill="rgb(0,0,0)"/>
+<text x="8.604099" y="4.176831" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx184mm</text>
+<circle cx="8.794272" cy="3.933875" r="0.035" fill="rgb(0,0,0)"/>
+<text x="8.794272" y="4.125875" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx181mm</text>
+</g>
+<g id="P28_strings">
+<line x1="4.371209" y1="2.498399" x2="5.050782" y2="2.244906" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="4.710996" y="2.271653" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P28</text>
+<circle cx="4.371209" cy="2.498399" r="0.035" fill="rgb(0,0,0)"/>
+<text x="4.371209" y="2.690399" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx200mm</text>
+<circle cx="5.050782" cy="2.244906" r="0.035" fill="rgb(0,0,0)"/>
+<text x="5.050782" y="2.436906" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx210mm</text>
+</g>
+<g id="P29_strings">
+<line x1="2.838479" y1="8.576161" x2="3.092332" y2="7.860906" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="2.965405" y="8.118534" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P29</text>
+<circle cx="2.838479" cy="8.576161" r="0.035" fill="rgb(0,0,0)"/>
+<text x="2.838479" y="8.768161" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx182mm</text>
+<circle cx="3.092332" cy="7.860906" r="0.035" fill="rgb(0,0,0)"/>
+<text x="3.092332" y="8.052906" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx186mm</text>
+</g>
+<g id="P30_strings">
+<line x1="7.375695" y1="9.776444" x2="7.992824" y2="9.611084" stroke="rgb(0,0,0)" stroke-width="0.01" fill="none"/>
+<text x="7.68426" y="9.593764" fill="rgb(0,0,0)" font-family="monospace" font-size="0.16" text-anchor="middle">P30</text>
+<circle cx="7.375695" cy="9.776444" r="0.035" fill="rgb(0,0,0)"/>
+<text x="7.375695" y="9.968444" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Lx205mm</text>
+<circle cx="7.992824" cy="9.611084" r="0.035" fill="rgb(0,0,0)"/>
+<text x="7.992824" y="9.803084" fill="rgb(0,0,0)" font-family="monospace" font-size="0.12" text-anchor="middle">Rx196mm</text>
+</g>
+</svg>
