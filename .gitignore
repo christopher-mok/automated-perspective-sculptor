@@ -1,3 +1,6 @@
 
 __pycache__/
 *.pyc
+logs/
+runs/logs/*
+!runs/logs/.gitkeep

@@ -98,9 +98,17 @@ def main(
         time.sleep(0.1)
 
 
+def _resolve_template(name: str) -> Path:
+    """Accept a template path relative to the cwd or the repo root."""
+    for candidate in (Path(name), RUNS_DIR / name):
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"Template not found: {name}")
+
+
 if __name__ == "__main__":
     argv = sys.argv
-    template = Path(argv[1])
+    template = _resolve_template(argv[1])
     cur = 2
     now_str = None
     skip_existing = False
