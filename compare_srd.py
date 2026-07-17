@@ -36,7 +36,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda", help="PyTorch device string.")
     parser.add_argument("--palette", default="", help="Palette, e.g. '#111111,#f4d35e'.")
     parser.add_argument("--hanging-plane-size", type=float, default=5.0)
-    parser.add_argument("--swept-resolution", type=int, default=108)
+    parser.add_argument("--swept-resolution", type=int, default=256)
     parser.add_argument("--srd-interval", type=int, default=50)
     parser.add_argument("--srd-candidates", type=int, default=32)
     parser.add_argument("--no-renders", action="store_true", help="Skip saving render images.")

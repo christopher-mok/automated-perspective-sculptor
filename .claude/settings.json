@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(timeout 120 python compare_srd.py --target1 images/horse.png --target2 images/circle.png --trials 1 --steps 20 --no-renders --output-file comparison_results.txt)"
+      "Bash(timeout 120 python compare_srd.py --target1 images/horse.png --target2 images/circle.png --trials 1 --steps 20 --no-renders --output-file comparison_results.txt)",
+      "Bash(python run_all_comparisons.py)",
+      "Bash(pkill -f \"python run_all_comparisons.py\")",
+      "Bash(timeout 120 python compare_srd.py --target1 images/horse.png --target2 images/circle.png --trials 1 --steps 50 --no-renders)"
     ]
   }
 }

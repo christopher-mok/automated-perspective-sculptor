@@ -574,6 +574,39 @@ class SceneOptimizer:
             "overlap_weighted": float((self.overlap_weight * components["overlap"]).detach().cpu()),
         }
 
+    def _calculate_iou(self, render: torch.Tensor, target: torch.Tensor) -> float:
+        """Calculate Intersection over Union (IOU) between render and target images.
+
+        IOU measures the overlap between rendered silhouette and target silhouette.
+        Both images are converted to binary masks (alpha > 0.5).
+        """
+        # Convert to CPU numpy if needed
+        if isinstance(render, torch.Tensor):
+            render_np = render.numpy() if render.is_cpu else render.cpu().numpy()
+        else:
+            render_np = render
+
+        if isinstance(target, torch.Tensor):
+            target_np = target.numpy() if target.is_cpu else target.cpu().numpy()
+        else:
+            target_np = target
+
+        # Extract alpha channels to create binary masks
+        # Assume RGBA format
+        render_mask = render_np[..., 3] > 0.5  # Alpha > 0.5
+        target_mask = target_np[..., 3] > 0.5
+
+        # Calculate intersection and union
+        intersection = (render_mask & target_mask).sum()
+        union = (render_mask | target_mask).sum()
+
+        # Avoid division by zero
+        if union == 0:
+            return 0.0
+
+        iou = float(intersection) / float(union)
+        return iou
+
     def _loss_from_renders(
         self,
         render1: torch.Tensor,
@@ -717,8 +750,20 @@ class SceneOptimizer:
                 render2,
                 self.patches,
             )
+            metrics = self._metrics_from_components(loss, components)
+
+            # Add IOU metrics
+            render1_cpu = render1.detach().cpu()
+            render2_cpu = render2.detach().cpu()
+            iou1 = self._calculate_iou(render1_cpu, self.target1)
+            iou2 = self._calculate_iou(render2_cpu, self.target2) if self.target2 is not None else 0.0
+            metrics["view1_iou"] = iou1
+            if self.target2 is not None:
+                metrics["view2_iou"] = iou2
+                metrics["mean_iou"] = (iou1 + iou2) / 2.0
+
         return (
-            self._metrics_from_components(loss, components),
+            metrics,
             render1.detach().cpu(),
             render2.detach().cpu(),
         )

@@ -119,7 +119,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cpu", help="PyTorch device string.")
     parser.add_argument("--palette", default="", help="Palette, e.g. '#111111,#f4d35e'.")
     parser.add_argument("--hanging-plane-size", type=float, default=5.0)
-    parser.add_argument("--swept-resolution", type=int, default=108)
+    parser.add_argument("--swept-resolution", type=int, default=256)
     parser.add_argument("--srd-interval", type=int, default=50)
     parser.add_argument("--srd-candidates", type=int, default=32)
     parser.add_argument("--no-srd", action="store_true", help="Disable SRD entirely.")
@@ -183,6 +183,9 @@ def _trial_report_lines(trial: dict) -> list[str]:
         f"  view1_negative_space={metrics['view1_negative_space']:.6f}",
         f"  view2_negative_space={metrics['view2_negative_space']:.6f}",
         f"  overlap={metrics['overlap']:.6f}",
+        f"  view1_iou={metrics.get('view1_iou', 0.0):.6f}",
+        f"  view2_iou={metrics.get('view2_iou', 0.0):.6f}",
+        f"  mean_iou={metrics.get('mean_iou', 0.0):.6f}",
         f"  srd_total_adds={trial['srd_total_adds']}",
         f"  srd_total_deletes={trial['srd_total_deletes']}",
         f"  final_pass_tiny_deleted={trial['final_tiny_deleted']}",
