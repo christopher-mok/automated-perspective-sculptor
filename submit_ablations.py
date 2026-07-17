@@ -78,9 +78,13 @@ cd {project_root}
 """
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(
+    run_settings: dict[str, list[str]],
+    description: str,
+    default_settings: list[str],
+) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Submit run_ablation.py experiments to a SLURM cluster.",
+        description=description,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--sweep-name", required=True, help="Name for this batch of jobs.")
@@ -94,8 +98,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--settings",
         nargs="*",
-        choices=sorted(RUN_SETTINGS),
-        default=["full", "ablation"],
+        choices=sorted(run_settings),
+        default=default_settings,
         help="Run settings to compare.",
     )
     parser.add_argument("--trials", type=int, default=3, help="Trials per job.")
@@ -152,7 +156,11 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _build_jobs(args: argparse.Namespace, sweep_dir: Path) -> list[dict]:
+def _build_jobs(
+    args: argparse.Namespace,
+    sweep_dir: Path,
+    run_settings: dict[str, list[str]],
+) -> list[dict]:
     """Expand the sweep into one dict per job with its command line."""
     image_dir = _PROJECT_ROOT / "images"
     seed_groups: list[list[int] | None]
@@ -173,7 +181,7 @@ def _build_jobs(args: argparse.Namespace, sweep_dir: Path) -> list[dict]:
                     args.python, "run_ablation.py",
                     "--target1", str(image_dir / target1),
                     "--target2", str(image_dir / target2),
-                    *RUN_SETTINGS[setting],
+                    *run_settings[setting],
                     "--steps", str(args.steps),
                     "--n-patches", str(args.n_patches),
                     "--lr", str(args.lr),
@@ -271,8 +279,13 @@ def _collect(sweep_dir: Path) -> None:
         )
 
 
-def main() -> None:
-    args = _parse_args()
+def run_cli(
+    run_settings: dict[str, list[str]],
+    description: str,
+    default_settings: list[str],
+) -> None:
+    """Shared submission CLI, parameterized by the available run settings."""
+    args = _parse_args(run_settings, description, default_settings)
     sweep_dir = _PROJECT_ROOT / "results" / args.sweep_name
 
     if args.collect:
@@ -280,7 +293,7 @@ def main() -> None:
         return
 
     sweep_dir.mkdir(parents=True, exist_ok=True)
-    jobs = _build_jobs(args, sweep_dir)
+    jobs = _build_jobs(args, sweep_dir, run_settings)
     print(
         f"[Sweep] {args.sweep_name}: {len(jobs)} job(s) "
         f"({len(args.pairs)} pair(s) x {len(args.settings)} setting(s)"
@@ -311,8 +324,16 @@ def main() -> None:
     print(f"[Sweep] manifest written to {manifest_path}")
     if not args.dry_run:
         print("Monitor with: squeue --me | grep " + args.sweep_name[:8])
-        print(f"Aggregate when done: python submit_ablations.py "
+        print(f"Aggregate when done: python {Path(sys.argv[0]).name} "
               f"--sweep-name {args.sweep_name} --collect")
+
+
+def main() -> None:
+    run_cli(
+        RUN_SETTINGS,
+        "Submit run_ablation.py ablation experiments to a SLURM cluster.",
+        default_settings=["full", "ablation"],
+    )
 
 
 if __name__ == "__main__":

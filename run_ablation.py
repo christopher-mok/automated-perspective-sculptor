@@ -124,6 +124,17 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--srd-candidates", type=int, default=32)
     parser.add_argument("--no-srd", action="store_true", help="Disable SRD entirely.")
     parser.add_argument(
+        "--simulated-annealing",
+        action="store_true",
+        help="Enable simulated-annealing parameter noise.",
+    )
+    parser.add_argument(
+        "--initial-temperature",
+        type=float,
+        default=1.0,
+        help="Starting temperature for simulated annealing.",
+    )
+    parser.add_argument(
         "--no-renders",
         action="store_true",
         help="Skip saving final per-trial render images.",
@@ -187,6 +198,7 @@ def _write_report(
         f"started={started_at}",
         f"mode={args.mode}",
         f"srd_enabled={not args.no_srd}",
+        f"simulated_annealing={args.simulated_annealing}",
         f"disable_swept_volume_adds={ablation_flags['disable_swept_volume_adds']}",
         f"loss_only_deletion={ablation_flags['loss_only_deletion']}",
         f"disable_splitting={ablation_flags['disable_splitting']}",
@@ -317,6 +329,8 @@ def main() -> None:
             hanging_plane_size=args.hanging_plane_size,
             hanging_plane_y=_HANGING_PLANE_Y,
             srd_config=srd_config,
+            simulated_annealing=args.simulated_annealing,
+            initial_temperature=args.initial_temperature,
             swept_volume=swept_volume,
         )
 

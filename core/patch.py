@@ -33,6 +33,48 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Outline triangulation
+# ---------------------------------------------------------------------------
+
+
+_EARCUT_WARNED = False
+
+
+def _triangulate_outline_xy(xy: np.ndarray) -> np.ndarray:
+    """Triangulate a closed 2-D outline into (F, 3) int32 vertex indices.
+
+    Uses mapbox-earcut so non-convex outlines are filled correctly (a
+    centroid/vertex fan over-covers concave shapes). Falls back to a
+    vertex-0 fan — correct only for convex outlines — when the library is
+    missing or the polygon is degenerate.
+    """
+    global _EARCUT_WARNED
+    n = len(xy)
+    try:
+        import mapbox_earcut
+
+        rings = np.array([n], dtype=np.uint32)
+        indices = mapbox_earcut.triangulate_float64(
+            np.ascontiguousarray(xy, dtype=np.float64),
+            rings,
+        )
+        if len(indices) >= 3:
+            return np.asarray(indices, dtype=np.int32).reshape(-1, 3)
+    except ImportError:
+        if not _EARCUT_WARNED:
+            _EARCUT_WARNED = True
+            print(
+                "[Patch] mapbox-earcut is not installed; falling back to fan "
+                "fill, so non-convex pieces will render incorrectly. "
+                "Install it with: pip install mapbox-earcut"
+            )
+    return np.array(
+        [[0, i, i + 1] for i in range(1, n - 1)],
+        dtype=np.int32,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rotation helper
 # ---------------------------------------------------------------------------
 
@@ -370,7 +412,12 @@ class Patch(nn.Module):
         n_per_segment: int = 20,
         thickness: float = DEFAULT_THICKNESS,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return a fixed-thickness extrusion of the spline as world vertices/faces."""
+        """Return a fixed-thickness extrusion of the spline as world vertices/faces.
+
+        Vertex layout: [front outline (N), back outline (N)]. The caps are
+        earcut-triangulated so the filled region is exactly the area enclosed
+        by the Bezier outline, including non-convex shapes.
+        """
         local = self.sample_spline_local(n_per_segment)
         N = len(local)
         half = thickness * 0.5
@@ -378,40 +425,33 @@ class Patch(nn.Module):
 
         front = self.local_to_world(local + offset)
         back = self.local_to_world(local - offset)
-        front_centroid = front.mean(dim=0, keepdim=True)
-        back_centroid = back.mean(dim=0, keepdim=True)
-        verts = torch.cat([front_centroid, front, back_centroid, back], dim=0)
+        verts = torch.cat([front, back], dim=0)
 
-        back_center = N + 1
-        back_start = N + 2
+        with torch.no_grad():
+            cap = _triangulate_outline_xy(local[:, :2].detach().cpu().numpy())
+
         faces: list[list[int]] = []
+        for a, b, c in cap.tolist():
+            faces.append([a, b, c])                # front cap
+            faces.append([a + N, c + N, b + N])    # back cap (reversed winding)
         for i in range(N):
             j = (i + 1) % N
-            fi = i + 1
-            fj = j + 1
-            bi = back_start + i
-            bj = back_start + j
-            faces.append([0, fi, fj])
-            faces.append([back_center, bj, bi])
-            faces.append([fi, bi, bj])
-            faces.append([fi, bj, fj])
+            faces.append([i, N + i, N + j])
+            faces.append([i, N + j, j])
 
         return verts, torch.tensor(faces, dtype=torch.int32, device=self.center.device)
 
     def triangle_faces(self, n_per_segment: int = 20) -> torch.Tensor:
-        """(F, 3) int32 triangle indices for a fan mesh from the centroid.
+        """(F, 3) int32 triangle indices filling the sampled outline.
 
-        Vertex layout expected by the renderer:
-            index 0      : centroid  (prepend before calling)
-            indices 1..V : spline sample points
+        Indices reference the V = N_CONTROL_POINTS * n_per_segment spline
+        sample points directly. Earcut-triangulated, so non-convex outlines
+        are filled correctly.
         """
-        V = self.N_CONTROL_POINTS * n_per_segment
-        faces = torch.tensor(
-            [[0, i + 1, (i + 1) % V + 1] for i in range(V)],
-            dtype=torch.int32,
-            device=self.center.device,
-        )
-        return faces  # (V, 3)
+        with torch.no_grad():
+            xy = self.sample_spline_local(n_per_segment)[:, :2].detach().cpu().numpy()
+        faces = _triangulate_outline_xy(xy)
+        return torch.from_numpy(faces).to(device=self.center.device)
 
     # ------------------------------------------------------------------
     # Viewport bridge — detached numpy, safe across threads
