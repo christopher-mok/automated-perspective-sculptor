@@ -578,7 +578,7 @@ class SceneOptimizer:
         """Calculate Intersection over Union (IOU) between render and target images.
 
         IOU measures the overlap between rendered silhouette and target silhouette.
-        Both images are converted to binary masks (alpha > 0.5).
+        Both images are converted to binary masks (alpha > 0.5 for RGBA, intensity > 0.5 for RGB).
         """
         # Convert to CPU numpy if needed
         if isinstance(render, torch.Tensor):
@@ -592,9 +592,19 @@ class SceneOptimizer:
             target_np = target
 
         # Extract alpha channels to create binary masks
-        # Assume RGBA format
+        # Render is always RGBA format
         render_mask = render_np[..., 3] > 0.5  # Alpha > 0.5
-        target_mask = target_np[..., 3] > 0.5
+
+        # Target may be RGB or RGBA - check shape
+        if target_np.shape[-1] == 4:
+            # RGBA format
+            target_mask = target_np[..., 3] > 0.5
+        elif target_np.shape[-1] == 3:
+            # RGB format - use mean as intensity
+            target_mask = target_np.mean(axis=-1) > 0.1  # Slightly lower threshold for RGB
+        else:
+            # Grayscale or unknown - just use the values
+            target_mask = target_np > 0.1
 
         # Calculate intersection and union
         intersection = (render_mask & target_mask).sum()
