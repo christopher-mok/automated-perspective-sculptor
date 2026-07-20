@@ -1,163 +1,167 @@
-Compiled experiment reports
+Packaged experiment runs — one folder per run
+  <run>/report.txt   config, SLURM record and full result report
+  <run>/artifacts/   the run's own output (csv, png, txt, ...)
+  <run>/logs/        sbatch script and stdout/stderr
+
 source repo : /oscar/home/cjmok/automated-perspective-sculptor
 experiments : 150 successful runs
 
 [ablation]  SRD ablation
-  20260717_1249__ablation_acm_scf_ablation.txt                    20260717_1249
-  20260717_1249__ablation_acm_scf_full.txt                        20260717_1249
-  20260717_1249__ablation_cat_face_bass_ablation.txt              20260717_1249
-  20260717_1249__ablation_cat_face_bass_full.txt                  20260717_1249
-  20260717_1249__ablation_horse_circle_ablation.txt               20260717_1249
-  20260717_1249__ablation_horse_circle_full.txt                   20260717_1249
-  20260717_1249__ablation_sun_moon_ablation.txt                   20260717_1249
-  20260717_1249__ablation_sun_moon_full.txt                       20260717_1249
-  20260717_1249__ablation_water_fire_ablation.txt                 20260717_1249
-  20260717_1249__ablation_water_fire_full.txt                     20260717_1249
-  20260718_1833__ablation_acm_scf_ablation.txt                    20260718_1833
-  20260718_1833__ablation_acm_scf_full.txt                        20260718_1833
-  20260718_1833__ablation_cat_face_bass_ablation.txt              20260718_1833
-  20260718_1833__ablation_cat_face_bass_full.txt                  20260718_1833
-  20260718_1833__ablation_horse_circle_ablation.txt               20260718_1833
-  20260718_1833__ablation_horse_circle_full.txt                   20260718_1833
-  20260718_1833__ablation_sun_moon_ablation.txt                   20260718_1833
-  20260718_1833__ablation_sun_moon_full.txt                       20260718_1833
-  20260718_1833__ablation_water_fire_ablation.txt                 20260718_1833
-  20260718_1833__ablation_water_fire_full.txt                     20260718_1833
+  20260717_1249__ablation_acm_scf_ablation/                       20260717_1249  (10 artifacts, 3 logs)
+  20260717_1249__ablation_acm_scf_full/                           20260717_1249  (10 artifacts, 3 logs)
+  20260717_1249__ablation_cat_face_bass_ablation/                 20260717_1249  (10 artifacts, 3 logs)
+  20260717_1249__ablation_cat_face_bass_full/                     20260717_1249  (10 artifacts, 3 logs)
+  20260717_1249__ablation_horse_circle_ablation/                  20260717_1249  (10 artifacts, 3 logs)
+  20260717_1249__ablation_horse_circle_full/                      20260717_1249  (10 artifacts, 3 logs)
+  20260717_1249__ablation_sun_moon_ablation/                      20260717_1249  (10 artifacts, 3 logs)
+  20260717_1249__ablation_sun_moon_full/                          20260717_1249  (10 artifacts, 3 logs)
+  20260717_1249__ablation_water_fire_ablation/                    20260717_1249  (10 artifacts, 3 logs)
+  20260717_1249__ablation_water_fire_full/                        20260717_1249  (10 artifacts, 3 logs)
+  20260718_1833__ablation_acm_scf_ablation/                       20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__ablation_acm_scf_full/                           20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__ablation_cat_face_bass_ablation/                 20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__ablation_cat_face_bass_full/                     20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__ablation_horse_circle_ablation/                  20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__ablation_horse_circle_full/                      20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__ablation_sun_moon_ablation/                      20260718_1833  (7 artifacts, 3 logs)
+  20260718_1833__ablation_sun_moon_full/                          20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__ablation_water_fire_ablation/                    20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__ablation_water_fire_full/                        20260718_1833  (10 artifacts, 3 logs)
 
 [benchmark]  Legacy multi-pair benchmark run (results/<name>/benchmark
-  SRD.txt                                                         legacy
-  basic.txt                                                       legacy
-  simulated_annealing.txt                                         legacy
+  SRD/                                                            legacy  (30 artifacts, 0 logs)
+  basic/                                                          legacy  (30 artifacts, 0 logs)
+  simulated_annealing/                                            legacy  (30 artifacts, 0 logs)
 
 [comparison]  Method comparison
-  20260718_0323__comparison_acm_scf_basic.txt                     20260718_0323
-  20260718_0323__comparison_acm_scf_srd.txt                       20260718_0323
-  20260718_0323__comparison_cat_face_bass_basic.txt               20260718_0323
-  20260718_0323__comparison_cat_face_bass_srd.txt                 20260718_0323
-  20260718_0323__comparison_horse_circle_basic.txt                20260718_0323
-  20260718_0323__comparison_horse_circle_srd.txt                  20260718_0323
-  20260718_0323__comparison_sun_moon_basic.txt                    20260718_0323
-  20260718_0323__comparison_sun_moon_srd.txt                      20260718_0323
-  20260718_0323__comparison_water_fire_basic.txt                  20260718_0323
-  20260718_0323__comparison_water_fire_srd.txt                    20260718_0323
-  20260718_1733__comparison_cat_face_bass_basic.txt               20260718_1733
-  20260718_1833__comparison_acm_scf_basic.txt                     20260718_1833
-  20260718_1833__comparison_acm_scf_srd.txt                       20260718_1833
-  20260718_1833__comparison_cat_face_bass_basic.txt               20260718_1833
-  20260718_1833__comparison_cat_face_bass_srd.txt                 20260718_1833
-  20260718_1833__comparison_horse_circle_basic.txt                20260718_1833
-  20260718_1833__comparison_horse_circle_srd.txt                  20260718_1833
-  20260718_1833__comparison_sun_moon_basic.txt                    20260718_1833
-  20260718_1833__comparison_sun_moon_srd.txt                      20260718_1833
-  20260718_1833__comparison_water_fire_basic.txt                  20260718_1833
-  20260718_1833__comparison_water_fire_srd.txt                    20260718_1833
+  20260718_0323__comparison_acm_scf_basic/                        20260718_0323  (10 artifacts, 3 logs)
+  20260718_0323__comparison_acm_scf_srd/                          20260718_0323  (10 artifacts, 3 logs)
+  20260718_0323__comparison_cat_face_bass_basic/                  20260718_0323  (10 artifacts, 3 logs)
+  20260718_0323__comparison_cat_face_bass_srd/                    20260718_0323  (10 artifacts, 3 logs)
+  20260718_0323__comparison_horse_circle_basic/                   20260718_0323  (10 artifacts, 3 logs)
+  20260718_0323__comparison_horse_circle_srd/                     20260718_0323  (10 artifacts, 3 logs)
+  20260718_0323__comparison_sun_moon_basic/                       20260718_0323  (10 artifacts, 3 logs)
+  20260718_0323__comparison_sun_moon_srd/                         20260718_0323  (10 artifacts, 3 logs)
+  20260718_0323__comparison_water_fire_basic/                     20260718_0323  (10 artifacts, 3 logs)
+  20260718_0323__comparison_water_fire_srd/                       20260718_0323  (10 artifacts, 3 logs)
+  20260718_1733__comparison_cat_face_bass_basic/                  20260718_1733  (4 artifacts, 3 logs)
+  20260718_1833__comparison_acm_scf_basic/                        20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__comparison_acm_scf_srd/                          20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__comparison_cat_face_bass_basic/                  20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__comparison_cat_face_bass_srd/                    20260718_1833  (7 artifacts, 3 logs)
+  20260718_1833__comparison_horse_circle_basic/                   20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__comparison_horse_circle_srd/                     20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__comparison_sun_moon_basic/                       20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__comparison_sun_moon_srd/                         20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__comparison_water_fire_basic/                     20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__comparison_water_fire_srd/                       20260718_1833  (10 artifacts, 3 logs)
 
 [convergence]  Convergence study
-  convergence_20260718_1538__conv_acm_scf_base_seed0.txt          convergence_20260718_1538
-  convergence_20260718_1538__conv_acm_scf_base_seed1.txt          convergence_20260718_1538
-  convergence_20260718_1538__conv_acm_scf_base_seed2.txt          convergence_20260718_1538
-  convergence_20260718_1538__conv_acm_scf_srd_seed0.txt           convergence_20260718_1538
-  convergence_20260718_1538__conv_acm_scf_srd_seed1.txt           convergence_20260718_1538
-  convergence_20260718_1538__conv_acm_scf_srd_seed2.txt           convergence_20260718_1538
-  convergence_20260718_1538__conv_cat_face_bass_base_seed0.txt    convergence_20260718_1538
-  convergence_20260718_1538__conv_cat_face_bass_base_seed1.txt    convergence_20260718_1538
-  convergence_20260718_1538__conv_cat_face_bass_base_seed2.txt    convergence_20260718_1538
-  convergence_20260718_1538__conv_cat_face_bass_srd_seed0.txt     convergence_20260718_1538
-  convergence_20260718_1538__conv_cat_face_bass_srd_seed1.txt     convergence_20260718_1538
-  convergence_20260718_1538__conv_cat_face_bass_srd_seed2.txt     convergence_20260718_1538
-  convergence_20260718_1538__conv_horse_circle_base_seed0.txt     convergence_20260718_1538
-  convergence_20260718_1538__conv_horse_circle_base_seed1.txt     convergence_20260718_1538
-  convergence_20260718_1538__conv_horse_circle_base_seed2.txt     convergence_20260718_1538
-  convergence_20260718_1538__conv_horse_circle_srd_seed0.txt      convergence_20260718_1538
-  convergence_20260718_1538__conv_horse_circle_srd_seed1.txt      convergence_20260718_1538
-  convergence_20260718_1538__conv_horse_circle_srd_seed2.txt      convergence_20260718_1538
-  convergence_20260718_1538__conv_sun_moon_base_seed0.txt         convergence_20260718_1538
-  convergence_20260718_1538__conv_sun_moon_base_seed1.txt         convergence_20260718_1538
-  convergence_20260718_1538__conv_sun_moon_base_seed2.txt         convergence_20260718_1538
-  convergence_20260718_1538__conv_sun_moon_srd_seed0.txt          convergence_20260718_1538
-  convergence_20260718_1538__conv_sun_moon_srd_seed1.txt          convergence_20260718_1538
-  convergence_20260718_1538__conv_sun_moon_srd_seed2.txt          convergence_20260718_1538
-  convergence_20260718_1538__conv_water_fire_base_seed0.txt       convergence_20260718_1538
-  convergence_20260718_1538__conv_water_fire_base_seed1.txt       convergence_20260718_1538
-  convergence_20260718_1538__conv_water_fire_base_seed2.txt       convergence_20260718_1538
-  convergence_20260718_1538__conv_water_fire_srd_seed0.txt        convergence_20260718_1538
-  convergence_20260718_1538__conv_water_fire_srd_seed1.txt        convergence_20260718_1538
-  convergence_20260718_1538__conv_water_fire_srd_seed2.txt        convergence_20260718_1538
-  convergence_20260718_1835__conv_acm_scf_base_seed0.txt          convergence_20260718_1835
-  convergence_20260718_1835__conv_acm_scf_base_seed1.txt          convergence_20260718_1835
-  convergence_20260718_1835__conv_acm_scf_base_seed2.txt          convergence_20260718_1835
-  convergence_20260718_1835__conv_acm_scf_srd_seed0.txt           convergence_20260718_1835
-  convergence_20260718_1835__conv_acm_scf_srd_seed1.txt           convergence_20260718_1835
-  convergence_20260718_1835__conv_acm_scf_srd_seed2.txt           convergence_20260718_1835
-  convergence_20260718_1835__conv_cat_face_bass_base_seed0.txt    convergence_20260718_1835
-  convergence_20260718_1835__conv_cat_face_bass_base_seed1.txt    convergence_20260718_1835
-  convergence_20260718_1835__conv_cat_face_bass_base_seed2.txt    convergence_20260718_1835
-  convergence_20260718_1835__conv_cat_face_bass_srd_seed0.txt     convergence_20260718_1835
-  convergence_20260718_1835__conv_cat_face_bass_srd_seed1.txt     convergence_20260718_1835
-  convergence_20260718_1835__conv_cat_face_bass_srd_seed2.txt     convergence_20260718_1835
-  convergence_20260718_1835__conv_horse_circle_base_seed0.txt     convergence_20260718_1835
-  convergence_20260718_1835__conv_horse_circle_base_seed1.txt     convergence_20260718_1835
-  convergence_20260718_1835__conv_horse_circle_base_seed2.txt     convergence_20260718_1835
-  convergence_20260718_1835__conv_horse_circle_srd_seed0.txt      convergence_20260718_1835
-  convergence_20260718_1835__conv_horse_circle_srd_seed1.txt      convergence_20260718_1835
-  convergence_20260718_1835__conv_horse_circle_srd_seed2.txt      convergence_20260718_1835
-  convergence_20260718_1835__conv_sun_moon_base_seed0.txt         convergence_20260718_1835
-  convergence_20260718_1835__conv_sun_moon_base_seed1.txt         convergence_20260718_1835
-  convergence_20260718_1835__conv_sun_moon_base_seed2.txt         convergence_20260718_1835
-  convergence_20260718_1835__conv_sun_moon_srd_seed0.txt          convergence_20260718_1835
-  convergence_20260718_1835__conv_sun_moon_srd_seed1.txt          convergence_20260718_1835
-  convergence_20260718_1835__conv_sun_moon_srd_seed2.txt          convergence_20260718_1835
-  convergence_20260718_1835__conv_water_fire_base_seed0.txt       convergence_20260718_1835
-  convergence_20260718_1835__conv_water_fire_base_seed1.txt       convergence_20260718_1835
-  convergence_20260718_1835__conv_water_fire_base_seed2.txt       convergence_20260718_1835
-  convergence_20260718_1835__conv_water_fire_srd_seed0.txt        convergence_20260718_1835
-  convergence_20260718_1835__conv_water_fire_srd_seed1.txt        convergence_20260718_1835
-  convergence_20260718_1835__conv_water_fire_srd_seed2.txt        convergence_20260718_1835
-  convergence_canary__conv_horse_circle_base_seed0.txt            convergence_canary
-  convergence_canary__conv_horse_circle_srd_seed0.txt             convergence_canary
-  convergence_canary2__conv_horse_circle_base_seed0.txt           convergence_canary2
-  convergence_canary2__conv_horse_circle_srd_seed0.txt            convergence_canary2
-  convergence_canary3__conv_horse_circle_base_seed0.txt           convergence_canary3
-  convergence_canary3__conv_horse_circle_srd_seed0.txt            convergence_canary3
+  convergence_20260718_1538__conv_acm_scf_base_seed0/             convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_acm_scf_base_seed1/             convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_acm_scf_base_seed2/             convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_acm_scf_srd_seed0/              convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_acm_scf_srd_seed1/              convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_acm_scf_srd_seed2/              convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_cat_face_bass_base_seed0/       convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_cat_face_bass_base_seed1/       convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_cat_face_bass_base_seed2/       convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_cat_face_bass_srd_seed0/        convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_cat_face_bass_srd_seed1/        convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_cat_face_bass_srd_seed2/        convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_horse_circle_base_seed0/        convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_horse_circle_base_seed1/        convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_horse_circle_base_seed2/        convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_horse_circle_srd_seed0/         convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_horse_circle_srd_seed1/         convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_horse_circle_srd_seed2/         convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_sun_moon_base_seed0/            convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_sun_moon_base_seed1/            convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_sun_moon_base_seed2/            convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_sun_moon_srd_seed0/             convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_sun_moon_srd_seed1/             convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_sun_moon_srd_seed2/             convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_water_fire_base_seed0/          convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_water_fire_base_seed1/          convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_water_fire_base_seed2/          convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_water_fire_srd_seed0/           convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_water_fire_srd_seed1/           convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1538__conv_water_fire_srd_seed2/           convergence_20260718_1538  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_acm_scf_base_seed0/             convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_acm_scf_base_seed1/             convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_acm_scf_base_seed2/             convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_acm_scf_srd_seed0/              convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_acm_scf_srd_seed1/              convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_acm_scf_srd_seed2/              convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_cat_face_bass_base_seed0/       convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_cat_face_bass_base_seed1/       convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_cat_face_bass_base_seed2/       convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_cat_face_bass_srd_seed0/        convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_cat_face_bass_srd_seed1/        convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_cat_face_bass_srd_seed2/        convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_horse_circle_base_seed0/        convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_horse_circle_base_seed1/        convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_horse_circle_base_seed2/        convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_horse_circle_srd_seed0/         convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_horse_circle_srd_seed1/         convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_horse_circle_srd_seed2/         convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_sun_moon_base_seed0/            convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_sun_moon_base_seed1/            convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_sun_moon_base_seed2/            convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_sun_moon_srd_seed0/             convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_sun_moon_srd_seed1/             convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_sun_moon_srd_seed2/             convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_water_fire_base_seed0/          convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_water_fire_base_seed1/          convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_water_fire_base_seed2/          convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_water_fire_srd_seed0/           convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_water_fire_srd_seed1/           convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_20260718_1835__conv_water_fire_srd_seed2/           convergence_20260718_1835  (2 artifacts, 0 logs)
+  convergence_canary__conv_horse_circle_base_seed0/               convergence_canary  (2 artifacts, 0 logs)
+  convergence_canary__conv_horse_circle_srd_seed0/                convergence_canary  (2 artifacts, 0 logs)
+  convergence_canary2__conv_horse_circle_base_seed0/              convergence_canary2  (2 artifacts, 0 logs)
+  convergence_canary2__conv_horse_circle_srd_seed0/               convergence_canary2  (2 artifacts, 0 logs)
+  convergence_canary3__conv_horse_circle_base_seed0/              convergence_canary3  (2 artifacts, 0 logs)
+  convergence_canary3__conv_horse_circle_srd_seed0/               convergence_canary3  (2 artifacts, 0 logs)
 
 [patchsize]  Patch-size sweep
-  20260718_0340__patchsize_acm_scf_10.txt                         20260718_0340
-  20260718_0340__patchsize_acm_scf_20.txt                         20260718_0340
-  20260718_0340__patchsize_acm_scf_30.txt                         20260718_0340
-  20260718_0340__patchsize_acm_scf_5.txt                          20260718_0340
-  20260718_0340__patchsize_cat_face_bass_10.txt                   20260718_0340
-  20260718_0340__patchsize_cat_face_bass_20.txt                   20260718_0340
-  20260718_0340__patchsize_cat_face_bass_30.txt                   20260718_0340
-  20260718_0340__patchsize_cat_face_bass_5.txt                    20260718_0340
-  20260718_0340__patchsize_horse_circle_10.txt                    20260718_0340
-  20260718_0340__patchsize_horse_circle_20.txt                    20260718_0340
-  20260718_0340__patchsize_horse_circle_30.txt                    20260718_0340
-  20260718_0340__patchsize_horse_circle_5.txt                     20260718_0340
-  20260718_0340__patchsize_sun_moon_10.txt                        20260718_0340
-  20260718_0340__patchsize_sun_moon_20.txt                        20260718_0340
-  20260718_0340__patchsize_sun_moon_30.txt                        20260718_0340
-  20260718_0340__patchsize_sun_moon_5.txt                         20260718_0340
-  20260718_0340__patchsize_water_fire_10.txt                      20260718_0340
-  20260718_0340__patchsize_water_fire_20.txt                      20260718_0340
-  20260718_0340__patchsize_water_fire_30.txt                      20260718_0340
-  20260718_0340__patchsize_water_fire_5.txt                       20260718_0340
-  20260718_1833__patchsize_acm_scf_10.txt                         20260718_1833
-  20260718_1833__patchsize_acm_scf_20.txt                         20260718_1833
-  20260718_1833__patchsize_acm_scf_30.txt                         20260718_1833
-  20260718_1833__patchsize_acm_scf_5.txt                          20260718_1833
-  20260718_1833__patchsize_cat_face_bass_10.txt                   20260718_1833
-  20260718_1833__patchsize_cat_face_bass_20.txt                   20260718_1833
-  20260718_1833__patchsize_cat_face_bass_30.txt                   20260718_1833
-  20260718_1833__patchsize_cat_face_bass_5.txt                    20260718_1833
-  20260718_1833__patchsize_horse_circle_10.txt                    20260718_1833
-  20260718_1833__patchsize_horse_circle_20.txt                    20260718_1833
-  20260718_1833__patchsize_horse_circle_30.txt                    20260718_1833
-  20260718_1833__patchsize_horse_circle_5.txt                     20260718_1833
-  20260718_1833__patchsize_sun_moon_10.txt                        20260718_1833
-  20260718_1833__patchsize_sun_moon_20.txt                        20260718_1833
-  20260718_1833__patchsize_sun_moon_30.txt                        20260718_1833
-  20260718_1833__patchsize_sun_moon_5.txt                         20260718_1833
-  20260718_1833__patchsize_water_fire_10.txt                      20260718_1833
-  20260718_1833__patchsize_water_fire_20.txt                      20260718_1833
-  20260718_1833__patchsize_water_fire_30.txt                      20260718_1833
-  20260718_1833__patchsize_water_fire_5.txt                       20260718_1833
+  20260718_0340__patchsize_acm_scf_10/                            20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_acm_scf_20/                            20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_acm_scf_30/                            20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_acm_scf_5/                             20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_cat_face_bass_10/                      20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_cat_face_bass_20/                      20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_cat_face_bass_30/                      20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_cat_face_bass_5/                       20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_horse_circle_10/                       20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_horse_circle_20/                       20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_horse_circle_30/                       20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_horse_circle_5/                        20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_sun_moon_10/                           20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_sun_moon_20/                           20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_sun_moon_30/                           20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_sun_moon_5/                            20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_water_fire_10/                         20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_water_fire_20/                         20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_water_fire_30/                         20260718_0340  (10 artifacts, 3 logs)
+  20260718_0340__patchsize_water_fire_5/                          20260718_0340  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_acm_scf_10/                            20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_acm_scf_20/                            20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_acm_scf_30/                            20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_acm_scf_5/                             20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_cat_face_bass_10/                      20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_cat_face_bass_20/                      20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_cat_face_bass_30/                      20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_cat_face_bass_5/                       20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_horse_circle_10/                       20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_horse_circle_20/                       20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_horse_circle_30/                       20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_horse_circle_5/                        20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_sun_moon_10/                           20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_sun_moon_20/                           20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_sun_moon_30/                           20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_sun_moon_5/                            20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_water_fire_10/                         20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_water_fire_20/                         20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_water_fire_30/                         20260718_1833  (10 artifacts, 3 logs)
+  20260718_1833__patchsize_water_fire_5/                          20260718_1833  (10 artifacts, 3 logs)
