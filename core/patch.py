@@ -38,6 +38,24 @@ if TYPE_CHECKING:
 
 
 _EARCUT_WARNED = False
+_FORCE_FAN_FILL = False
+
+
+def set_fan_fill(enabled: bool) -> None:
+    """Force (or unforce) vertex-0 fan fill instead of earcut triangulation.
+
+    Set before any patch is built. Experiments that want the fan
+    representation regardless of whether mapbox-earcut happens to be
+    installed call this so the geometry is a property of the run, not of
+    the environment.
+    """
+    global _FORCE_FAN_FILL
+    _FORCE_FAN_FILL = bool(enabled)
+
+
+def fan_fill_enabled() -> bool:
+    """True when fan fill has been forced with set_fan_fill."""
+    return _FORCE_FAN_FILL
 
 
 def _triangulate_outline_xy(xy: np.ndarray) -> np.ndarray:
@@ -46,10 +64,16 @@ def _triangulate_outline_xy(xy: np.ndarray) -> np.ndarray:
     Uses mapbox-earcut so non-convex outlines are filled correctly (a
     centroid/vertex fan over-covers concave shapes). Falls back to a
     vertex-0 fan — correct only for convex outlines — when the library is
-    missing or the polygon is degenerate.
+    missing, when set_fan_fill(True) has forced it, or when the polygon is
+    degenerate.
     """
     global _EARCUT_WARNED
     n = len(xy)
+    if _FORCE_FAN_FILL:
+        return np.array(
+            [[0, i, i + 1] for i in range(1, n - 1)],
+            dtype=np.int32,
+        )
     try:
         import mapbox_earcut
 

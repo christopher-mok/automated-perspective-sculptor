@@ -56,6 +56,12 @@ def main() -> None:
         default=1000,
         help="Steps for the patchsize_* jobs (each runs SRD and base back to back).",
     )
+    parser.add_argument(
+        "--swept-resolution",
+        type=int,
+        default=256,
+        help="Swept-volume grid resolution, pinned in the ablation/comparison payloads.",
+    )
     args = parser.parse_args()
 
     written = []
@@ -70,6 +76,7 @@ def main() -> None:
                     *settings[setting],
                     "--trials", str(args.trials),
                     "--steps", str(args.steps),
+                    "--swept-resolution", str(args.swept_resolution),
                     "--device", "cuda",
                     "--output-dir", f"results/slurm/###TIMESTAMP###/{job_name}",
                 ])

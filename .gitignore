@@ -2,5 +2,7 @@
 __pycache__/
 *.pyc
 logs/
+# packaged experiment folders keep their own copy of the slurm logs
+!experiments/*/logs/
 runs/logs/*
 !runs/logs/.gitkeep

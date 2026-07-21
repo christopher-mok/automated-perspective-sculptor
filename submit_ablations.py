@@ -73,7 +73,12 @@ SBATCH_TEMPLATE = """\
 
 set -euo pipefail
 cd {project_root}
+# Relax errexit/nounset while sourcing shell-init and conda: Oscar's
+# /etc/bashrc references unbound vars (e.g. BASHRCSOURCED) and conda
+# activate can return non-zero, either of which aborts the job otherwise.
+set +eu
 {env_setup}
+set -eu
 {command}
 """
 

@@ -124,7 +124,7 @@ class StochasticRewriteDescent:
         no_effect_image_delta: float = 1e-6,
         rule_violation_tol: float = 1e-4,
         swept_volume: "SweptVolume | None" = None,
-        swept_volume_spawn_fraction: float = 0.75,
+        swept_volume_spawn_fraction: float = 1.0,
         disable_swept_volume_adds: bool = False,
         loss_only_deletion: bool = False,
         disable_splitting: bool = False,

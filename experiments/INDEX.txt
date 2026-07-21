@@ -4,7 +4,7 @@ Packaged experiment runs — one folder per run
   <run>/logs/        sbatch script and stdout/stderr
 
 source repo : /oscar/home/cjmok/automated-perspective-sculptor
-experiments : 150 successful runs
+experiments : 224 successful runs
 
 [ablation]  SRD ablation
   20260717_1249__ablation_acm_scf_ablation/                       20260717_1249  (10 artifacts, 3 logs)
@@ -27,6 +27,7 @@ experiments : 150 successful runs
   20260718_1833__ablation_sun_moon_full/                          20260718_1833  (10 artifacts, 3 logs)
   20260718_1833__ablation_water_fire_ablation/                    20260718_1833  (10 artifacts, 3 logs)
   20260718_1833__ablation_water_fire_full/                        20260718_1833  (10 artifacts, 3 logs)
+  20260719_2351__ablation_sun_moon_ablation/                      20260719_2351  (10 artifacts, 3 logs)
 
 [benchmark]  Legacy multi-pair benchmark run (results/<name>/benchmark
   SRD/                                                            legacy  (30 artifacts, 0 logs)
@@ -55,6 +56,7 @@ experiments : 150 successful runs
   20260718_1833__comparison_sun_moon_srd/                         20260718_1833  (10 artifacts, 3 logs)
   20260718_1833__comparison_water_fire_basic/                     20260718_1833  (10 artifacts, 3 logs)
   20260718_1833__comparison_water_fire_srd/                       20260718_1833  (10 artifacts, 3 logs)
+  20260719_2351__comparison_cat_face_bass_srd/                    20260719_2351  (10 artifacts, 3 logs)
 
 [convergence]  Convergence study
   convergence_20260718_1538__conv_acm_scf_base_seed0/             convergence_20260718_1538  (2 artifacts, 0 logs)
@@ -124,6 +126,26 @@ experiments : 150 successful runs
   convergence_canary3__conv_horse_circle_base_seed0/              convergence_canary3  (2 artifacts, 0 logs)
   convergence_canary3__conv_horse_circle_srd_seed0/               convergence_canary3  (2 artifacts, 0 logs)
 
+[fanfill]  Fan-fill comparison
+  fanfill_20260720_0241__fanfill_cat_face_bass_basic_seed0/       fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_cat_face_bass_basic_seed1/       fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_cat_face_bass_basic_seed2/       fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_cat_face_bass_srd_seed0/         fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_cat_face_bass_srd_seed1/         fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_cat_face_bass_srd_seed2/         fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_horse_circle_basic_seed0/        fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_horse_circle_basic_seed1/        fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_horse_circle_basic_seed2/        fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_horse_circle_srd_seed0/          fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_horse_circle_srd_seed1/          fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_horse_circle_srd_seed2/          fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_sun_moon_basic_seed0/            fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_sun_moon_basic_seed1/            fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_sun_moon_basic_seed2/            fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_sun_moon_srd_seed0/              fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_sun_moon_srd_seed1/              fanfill_20260720_0241  (2 artifacts, 0 logs)
+  fanfill_20260720_0241__fanfill_sun_moon_srd_seed2/              fanfill_20260720_0241  (2 artifacts, 0 logs)
+
 [patchsize]  Patch-size sweep
   20260718_0340__patchsize_acm_scf_10/                            20260718_0340  (10 artifacts, 3 logs)
   20260718_0340__patchsize_acm_scf_20/                            20260718_0340  (10 artifacts, 3 logs)
@@ -165,3 +187,59 @@ experiments : 150 successful runs
   20260718_1833__patchsize_water_fire_20/                         20260718_1833  (10 artifacts, 3 logs)
   20260718_1833__patchsize_water_fire_30/                         20260718_1833  (10 artifacts, 3 logs)
   20260718_1833__patchsize_water_fire_5/                          20260718_1833  (10 artifacts, 3 logs)
+
+[weights]  Loss-weight sweep
+  sweep_20260720_0247__w_cat_face_bass_r0p25_seed0/               sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r0p25_seed1/               sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r0p25_seed2/               sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r0p5_seed0/                sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r0p5_seed1/                sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r0p5_seed2/                sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r0p8_seed0/                sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r0p8_seed1/                sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r0p8_seed2/                sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r1_seed0/                  sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r1_seed1/                  sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r1_seed2/                  sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r2_seed0/                  sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r2_seed1/                  sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r2_seed2/                  sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r4_seed0/                  sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r4_seed1/                  sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_cat_face_bass_r4_seed2/                  sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r0p25_seed0/                sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r0p25_seed1/                sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r0p25_seed2/                sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r0p5_seed0/                 sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r0p5_seed1/                 sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r0p5_seed2/                 sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r0p8_seed0/                 sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r0p8_seed1/                 sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r0p8_seed2/                 sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r1_seed0/                   sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r1_seed1/                   sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r1_seed2/                   sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r2_seed0/                   sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r2_seed1/                   sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r2_seed2/                   sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r4_seed0/                   sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r4_seed1/                   sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_horse_circle_r4_seed2/                   sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r0p25_seed0/                    sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r0p25_seed1/                    sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r0p25_seed2/                    sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r0p5_seed0/                     sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r0p5_seed1/                     sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r0p5_seed2/                     sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r0p8_seed0/                     sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r0p8_seed1/                     sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r0p8_seed2/                     sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r1_seed0/                       sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r1_seed1/                       sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r1_seed2/                       sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r2_seed0/                       sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r2_seed1/                       sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r2_seed2/                       sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r4_seed0/                       sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r4_seed1/                       sweep_20260720_0247  (2 artifacts, 0 logs)
+  sweep_20260720_0247__w_sun_moon_r4_seed2/                       sweep_20260720_0247  (2 artifacts, 0 logs)

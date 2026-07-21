@@ -574,11 +574,15 @@ class SceneOptimizer:
             "overlap_weighted": float((self.overlap_weight * components["overlap"]).detach().cpu()),
         }
 
-    def _calculate_iou(self, render: torch.Tensor, target: torch.Tensor) -> float:
-        """Calculate Intersection over Union (IOU) between render and target images.
+    def _calculate_iou(self, render: torch.Tensor, target_mask: torch.Tensor) -> float:
+        """Intersection over Union between the rendered and target silhouettes.
 
-        IOU measures the overlap between rendered silhouette and target silhouette.
-        Both images are converted to binary masks (alpha > 0.5 for RGBA, intensity > 0.5 for RGB).
+        `target_mask` must be a foreground mask as produced by
+        `foreground_mask_from_image` (shape (H, W, 1), float in 0..1), not a
+        colour image. Deriving the target silhouette from colour is wrong here:
+        the targets are flat shapes whose silhouette lives in the alpha channel,
+        so a black shape quantises to an all-zero RGB image and would score a
+        constant IoU of 0 regardless of how well the render matched it.
         """
         # Convert to CPU numpy if needed
         if isinstance(render, torch.Tensor):
@@ -586,29 +590,29 @@ class SceneOptimizer:
         else:
             render_np = render
 
-        if isinstance(target, torch.Tensor):
-            target_np = target.numpy() if target.is_cpu else target.cpu().numpy()
+        if isinstance(target_mask, torch.Tensor):
+            target_np = (
+                target_mask.numpy() if target_mask.is_cpu else target_mask.cpu().numpy()
+            )
         else:
-            target_np = target
+            target_np = target_mask
 
-        # Extract alpha channels to create binary masks
-        # Render is always RGBA format
-        render_mask = render_np[..., 3] > 0.5  # Alpha > 0.5
+        # Render is always RGBA; its silhouette is the alpha channel.
+        render_binary = render_np[..., 3] > 0.5
 
-        # Target may be RGB or RGBA - check shape
-        if target_np.shape[-1] == 4:
-            # RGBA format
-            target_mask = target_np[..., 3] > 0.5
-        elif target_np.shape[-1] == 3:
-            # RGB format - use mean as intensity
-            target_mask = target_np.mean(axis=-1) > 0.1  # Slightly lower threshold for RGB
-        else:
-            # Grayscale or unknown - just use the values
-            target_mask = target_np > 0.1
+        # Drop the trailing singleton channel so the masks broadcast as (H, W).
+        if target_np.ndim == render_binary.ndim + 1:
+            target_np = target_np[..., 0]
+        target_binary = target_np > 0.5
 
-        # Calculate intersection and union
-        intersection = (render_mask & target_mask).sum()
-        union = (render_mask | target_mask).sum()
+        if render_binary.shape != target_binary.shape:
+            raise ValueError(
+                f"IoU shape mismatch: render {render_binary.shape} vs "
+                f"target mask {target_binary.shape}"
+            )
+
+        intersection = (render_binary & target_binary).sum()
+        union = (render_binary | target_binary).sum()
 
         # Avoid division by zero
         if union == 0:
@@ -765,8 +769,11 @@ class SceneOptimizer:
             # Add IOU metrics
             render1_cpu = render1.detach().cpu()
             render2_cpu = render2.detach().cpu()
-            iou1 = self._calculate_iou(render1_cpu, self.target1)
-            iou2 = self._calculate_iou(render2_cpu, self.target2) if self.target2 is not None else 0.0
+            iou1 = self._calculate_iou(render1_cpu, self.target1_mask)
+            iou2 = (
+                self._calculate_iou(render2_cpu, self.target2_mask)
+                if self.target2_mask is not None else 0.0
+            )
             metrics["view1_iou"] = iou1
             if self.target2 is not None:
                 metrics["view2_iou"] = iou2

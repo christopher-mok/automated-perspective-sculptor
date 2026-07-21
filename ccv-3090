@@ -4,12 +4,12 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=6
 #SBATCH --mem=125G
-#SBATCH --time=3-00:00:00
+#SBATCH --time=12:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --signal=SIGUSR1@90
 #SBATCH --chdir=/users/cjmok/automated-perspective-sculptor
-#SBATCH --output=./runs/logs/%x.%j.out
-#SBATCH --error=./runs/logs/%x.%j.err
+#SBATCH --output=./logs/%x.%j.out
+#SBATCH --error=./logs/%x.%j.err
 ###SBATCH_ARGS###
 
 source /oscar/home/cjmok/.bashrc
