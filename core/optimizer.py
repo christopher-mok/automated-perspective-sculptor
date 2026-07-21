@@ -27,6 +27,7 @@ import torch
 import torch.nn.functional as F
 
 from core.loss import masked_rgb_loss, negative_space_loss, sds_loss, silhouette_loss
+from core.overlap import OVERLAP_MODES, overlap_loss, planar_overlap_repair
 from core.renderer import DiffRenderer
 from optimizer.srd import StochasticRewriteDescent
 
@@ -236,43 +237,13 @@ def _parameter_groups(patches: Sequence["Patch"]) -> list[torch.nn.Parameter]:
     return params
 
 
-def _patch_collision_radius(patch: "Patch") -> torch.Tensor:
-    """Conservative world-space radius enclosing one flat patch."""
-    max_radius = torch.zeros((), device=patch.center.device)
-    for cp in patch.control_points:
-        pos = cp.pos
-        handle = cp.handle_out()
-        cp_radius = torch.stack([
-            torch.linalg.norm(pos),
-            torch.linalg.norm(pos + handle),
-            torch.linalg.norm(pos - handle),
-        ]).max()
-        max_radius = torch.maximum(max_radius, cp_radius)
-    return max_radius + patch.DEFAULT_THICKNESS * 0.5
-
-
 def patch_overlap_loss(
     patches: Sequence["Patch"],
     margin: float = 0.005,
+    mode: str = "sphere",
 ) -> torch.Tensor:
-    """Soft penalty for overlapping conservative patch collision radii."""
-    if len(patches) < 2:
-        device = patches[0].center.device if patches else "cpu"
-        return torch.zeros((), device=device)
-
-    losses: list[torch.Tensor] = []
-    radii = [_patch_collision_radius(patch) for patch in patches]
-    for i in range(len(patches)):
-        for j in range(i + 1, len(patches)):
-            delta = patches[j].center - patches[i].center
-            dist = torch.linalg.norm(delta) + 1e-8
-            allowed = radii[i] + radii[j] + margin
-            overlap = torch.relu(allowed - dist)
-            losses.append(overlap ** 2)
-
-    if not losses:
-        return torch.zeros((), device=patches[0].center.device)
-    return torch.stack(losses).mean()
+    """Soft penalty for overlapping patches under the selected overlap test."""
+    return overlap_loss(patches, margin=margin, mode=mode)
 
 
 def constrain_patch_to_square_xz_bounds(
@@ -384,6 +355,9 @@ class SceneOptimizer:
         #overlap_weight: float = 0.05,
         overlap_weight: float = 0.7,
         overlap_margin: float = 0.005,
+        overlap_mode: str = "sphere",
+        overlap_repair: bool = False,
+        overlap_repair_interval: int = 5,
         theta_camera_margin: float = THETA_CAMERA_MARGIN,
         hanging_plane_size: float = 5.0,
         hanging_plane_y: float = DEFAULT_HANGING_PLANE_Y,
@@ -409,6 +383,18 @@ class SceneOptimizer:
         self.negative_space_weight = negative_space_weight
         self.overlap_weight = overlap_weight
         self.overlap_margin = overlap_margin
+        if overlap_mode not in OVERLAP_MODES:
+            raise ValueError(
+                f"Unknown overlap_mode {overlap_mode!r}; expected one of {OVERLAP_MODES}."
+            )
+        self.overlap_mode = overlap_mode
+        # Repair only exists for the planar test: it needs the exact
+        # plane-intersection criterion to know a pair really interpenetrates.
+        self.overlap_repair = bool(overlap_repair) and overlap_mode == "planar"
+        self.overlap_repair_interval = max(1, int(overlap_repair_interval))
+        self._repair_counter = 0
+        self.last_repaired_pairs = 0
+        self.last_repair_shift = 0.0
         self.theta_camera_margin = theta_camera_margin
         self.theta_camera_angles = _camera_yaw_angles((camera1, camera2))
         self.hanging_plane_size = hanging_plane_size
@@ -572,6 +558,8 @@ class SceneOptimizer:
                 ).detach().cpu()
             ),
             "overlap_weighted": float((self.overlap_weight * components["overlap"]).detach().cpu()),
+            "overlap_repaired_pairs": float(self.last_repaired_pairs),
+            "overlap_repair_shift": float(self.last_repair_shift),
         }
 
     def _calculate_iou(self, render: torch.Tensor, target_mask: torch.Tensor) -> float:
@@ -663,7 +651,7 @@ class SceneOptimizer:
             )
 
         if patches:
-            overlap = patch_overlap_loss(patches, self.overlap_margin)
+            overlap = patch_overlap_loss(patches, self.overlap_margin, self.overlap_mode)
         else:
             overlap = torch.zeros((), device=loss1.device)
         loss = (
@@ -744,6 +732,28 @@ class SceneOptimizer:
                     patch.self_intersect_counter = (
                         int(getattr(patch, "self_intersect_counter", 0)) + 1
                     )
+            self._repair_overlaps(half_plane)
+
+    def _repair_overlaps(self, half_plane: float) -> None:
+        """Separate patches the exact planar test finds interpenetrating.
+
+        Runs on an interval rather than every step: the exact test costs one
+        extra outline sampling pass over every patch, and a hard constraint
+        applied a few steps late is harmless when the gradient term is already
+        pushing the same pairs apart.
+        """
+        if not self.overlap_repair or len(self.patches) < 2:
+            return
+        self._repair_counter += 1
+        if self._repair_counter % self.overlap_repair_interval != 0:
+            return
+
+        pairs, shift = planar_overlap_repair(self.patches, self.overlap_margin)
+        self.last_repaired_pairs = pairs
+        self.last_repair_shift = shift
+        if pairs:
+            for patch in self.patches:
+                constrain_patch_to_square_xz_bounds(patch, half_plane)
 
     def mesh_snapshot(self, n_per_segment: int = 20) -> list["Mesh"]:
         return [p.to_mesh(n_per_segment=n_per_segment) for p in self.patches]
