@@ -124,6 +124,19 @@ def _parse_args() -> argparse.Namespace:
     run.add_argument("--hanging-plane-size", type=float, default=5.0)
     run.add_argument("--srd-interval", type=int, default=50)
     run.add_argument("--srd-candidates", type=int, default=32)
+
+    ops = parser.add_argument_group(
+        "SRD operation mix",
+        "How the per-step candidate budget (--srd-candidates) is divided "
+        "between the three rewrite kinds. These are proportions of the "
+        "candidates SRD gets to *look at*, not acceptance probabilities: "
+        "every candidate still has to beat the loss to be applied. The "
+        "weights are normalized, so only their ratios matter. The defaults "
+        "0.35/0.15/0.50 are the historical mix.",
+    )
+    ops.add_argument("--add-weight", type=float, default=0.35)
+    ops.add_argument("--delete-weight", type=float, default=0.15)
+    ops.add_argument("--split-weight", type=float, default=0.50)
     run.add_argument(
         "--lambda-count",
         type=float,
@@ -170,6 +183,49 @@ def _parse_args() -> argparse.Namespace:
         help="Bounds on the adapted lambda_count. The floor must stay above "
              "zero: the update is multiplicative, so a lambda that reaches 0 "
              "can never grow back.",
+    )
+
+    count = parser.add_argument_group(
+        "piece-count objective",
+        "Minimise the number of pieces subject to an IoU floor, by scoring "
+        "SRD rewrites on J = n_patches + lambda * hinge(target - mean_iou)^p "
+        "instead of on the image loss. The hinge switches the IoU term off "
+        "once the run is above --count-target-iou, so from there on rewrites "
+        "are judged purely on pieces and SRD spends the rest of the run "
+        "shedding them; below the threshold it pays for coverage again. The "
+        "gradient steps between rewrites still descend the ordinary image "
+        "loss -- this changes which discrete rewrites are accepted, which is "
+        "where the piece count is decided.",
+    )
+    count.add_argument(
+        "--count-objective",
+        action="store_true",
+        help="Score rewrites by J instead of by loss. --lambda-count is then unused.",
+    )
+    count.add_argument("--count-target-iou", type=float, default=0.90)
+    count.add_argument(
+        "--count-lambda",
+        type=float,
+        default=2000.0,
+        help="Exchange rate: how many pieces one unit of squared IoU deficit "
+             "is worth. At 2000, being 0.02 below target costs 0.8 pieces and "
+             "0.10 below costs 20.",
+    )
+    count.add_argument(
+        "--count-power",
+        type=float,
+        default=2.0,
+        help="Hinge exponent. 2 is the quadratic in the brief; its slope "
+             "vanishes at the threshold, so a run settles a little under the "
+             "target. 1 keeps a constant slope up to the kink.",
+    )
+    count.add_argument(
+        "--count-softplus-beta",
+        type=float,
+        default=0.0,
+        help="0 uses the hard max. Positive values replace the kink with a "
+             "softplus of that sharpness -- smooth, but it leaks a little "
+             "penalty above the threshold too.",
     )
 
     prune = parser.add_argument_group(
@@ -307,6 +363,14 @@ def _srd_config(args: argparse.Namespace) -> dict[str, object] | None:
         "enabled": True,
         "interval": args.srd_interval,
         "candidate_count": args.srd_candidates,
+        "add_weight": args.add_weight,
+        "delete_weight": args.delete_weight,
+        "split_weight": args.split_weight,
+        "count_objective": args.count_objective,
+        "count_target_iou": args.count_target_iou,
+        "count_lambda": args.count_lambda,
+        "count_power": args.count_power,
+        "count_softplus_beta": args.count_softplus_beta,
         "lambda_count": args.lambda_count,
         "lambda_mode": args.lambda_mode,
         "lambda_target_iou": args.target_iou,
@@ -336,6 +400,10 @@ HISTORY_COLUMNS = (
     # dual mode its trajectory is the run's own read on how many pieces the
     # shape needs to hold --target-iou.
     "lambda_count",
+    # Cumulative rewrites accepted so far, one column per kind. The piece
+    # count above is their running sum (adds + splits - deletes, plus the
+    # starting pieces); these say which operation produced it.
+    "total_adds", "total_splits", "total_deletes",
 )
 
 PRUNING_PATH_COLUMNS = (
@@ -343,7 +411,10 @@ PRUNING_PATH_COLUMNS = (
     "view2_iou", "mean_coverage", "mean_precision", "mean_spill",
 )
 
-_FLOAT_COLUMNS = {"step", "patches", "overlap_repaired_pairs"}
+_FLOAT_COLUMNS = {
+    "step", "patches", "overlap_repaired_pairs",
+    "total_adds", "total_splits", "total_deletes",
+}
 
 
 def _write_history_csv(path: Path, history: list[dict]) -> None:
@@ -445,9 +516,18 @@ def _write_report(
         f"swept_volume_resolution={args.swept_resolution}",
         f"swept_volume_spawn_fraction={args.swept_spawn_fraction:.6g}",
         f"srd_enabled={args.arm != 'basic'}",
+        f"srd_candidates={args.srd_candidates}",
+        f"add_weight={args.add_weight:.6g}",
+        f"delete_weight={args.delete_weight:.6g}",
+        f"split_weight={args.split_weight:.6g}",
         f"disable_swept_volume_adds={args.arm == 'srd_no_swept'}",
         f"lambda_count={args.lambda_count:.6g}",
         f"lambda_mode={args.lambda_mode}",
+        f"count_objective={args.count_objective}",
+        f"count_target_iou={args.count_target_iou:.6g}",
+        f"count_lambda={args.count_lambda:.6g}",
+        f"count_power={args.count_power:.6g}",
+        f"count_softplus_beta={args.count_softplus_beta:.6g}",
         f"silhouette_weight={args.silhouette_weight:.6g}",
         f"negative_space_weight={args.negative_space_weight:.6g}",
         f"weight_ratio={ratio:.6g}",
@@ -498,9 +578,34 @@ def _write_report(
             f"  final_lambda_count={final['lambda_count']:.6g}",
         ])
 
+    if args.count_objective and final is not None:
+        # What the run was actually minimising, and whether the constraint it
+        # was minimising subject to was met. The interesting comparison is
+        # patches_at_threshold vs final_patches: the first is what it took to
+        # reach the IoU floor, the second what survived the shedding afterwards.
+        deficit = max(0.0, args.count_target_iou - final["mean_iou"])
+        crossing = _first_crossing(history, args.count_target_iou)
+        lines.extend([
+            "",
+            "Piece-count objective:",
+            f"  count_target_reached={final['mean_iou'] >= args.count_target_iou}",
+            f"  count_final_deficit={deficit:.6f}",
+            f"  count_final_objective="
+            f"{final['patches'] + args.count_lambda * deficit ** args.count_power:.6f}",
+            f"  patches_at_threshold={crossing['patches'] if crossing else -1}",
+            f"  step_at_threshold={crossing['step'] if crossing else -1}",
+            f"  patches_shed_after_threshold="
+            f"{crossing['patches'] - final['patches'] if crossing else -1}",
+        ])
+
     if srd_stats is not None:
         lines.extend([
-            f"  srd_total_adds={getattr(srd_stats, 'total_added', 0)}",
+            # Adds and splits both grow the sculpture by one piece, but they
+            # are different moves: an add drops a new piece into uncovered
+            # space, a split subdivides one that is already carrying geometry.
+            f"  srd_total_adds={getattr(srd_stats, 'total_adds', 0)}",
+            f"  srd_total_splits={getattr(srd_stats, 'total_splits', 0)}",
+            f"  srd_total_growth={getattr(srd_stats, 'total_added', 0)}",
             f"  srd_total_deletes={getattr(srd_stats, 'total_deleted', 0)}",
         ])
 
@@ -637,6 +742,15 @@ def main() -> None:
             "overlap_repaired_pairs": int(step_metrics.get("overlap_repaired_pairs", 0)),
             "lambda_count": (
                 optimizer.srd.lambda_count if optimizer.srd is not None else 0.0
+            ),
+            "total_adds": (
+                optimizer.srd.stats.total_adds if optimizer.srd is not None else 0
+            ),
+            "total_splits": (
+                optimizer.srd.stats.total_splits if optimizer.srd is not None else 0
+            ),
+            "total_deletes": (
+                optimizer.srd.stats.total_deleted if optimizer.srd is not None else 0
             ),
         }
         for column in HISTORY_COLUMNS:

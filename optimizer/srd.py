@@ -19,19 +19,30 @@ if TYPE_CHECKING:
     from scene.camera import Camera
 
 
-RewriteKind = Literal["add", "restore", "delete", "split"]
+RewriteKind = Literal["add", "delete", "split"]
 
 
 @dataclass
 class SRDStats:
     added: int = 0
     deleted: int = 0
-    total_added: int = 0
+    # Lifetime counts per operation. ``total_added`` is the total number of
+    # growth rewrites (adds + splits) and is kept as the headline growth
+    # figure; the two components are recorded separately because they grow the
+    # sculpture in different ways -- an add drops a new small piece into
+    # uncovered space, a split subdivides a piece that is already carrying
+    # geometry.
+    total_adds: int = 0
+    total_splits: int = 0
     total_deleted: int = 0
     active: int = 0
     evaluated: int = 0
     promising: int = 0
     accepted: int = 0
+
+    @property
+    def total_added(self) -> int:
+        return self.total_adds + self.total_splits
 
 
 @dataclass
@@ -39,8 +50,6 @@ class RewriteCandidate:
     kind: RewriteKind
     position: np.ndarray | None = None
     patch_index: int | None = None
-    history_index: int | None = None
-    patch_state: dict | None = None
     improvement: float = 0.0
     applied_index: int | None = None
     reason: str = ""
@@ -51,16 +60,14 @@ class RewriteCandidate:
             return f"DeletePatch({self.patch_index})"
         if self.kind == "split":
             return f"SplitPatch({self.patch_index})"
-        if self.kind == "restore":
-            return f"RestorePatch({self.history_index})"
         return "AddPatch"
 
     @property
     def net_count_change(self) -> int:
         """Change in the scene's patch count if this rewrite is applied.
 
-        A delete removes one piece; an add, restore or split each net one more
-        (a split turns one patch into two). Used to charge the piece-count
+        A delete removes one piece; an add or a split each net one more (a
+        split turns one patch into two). Used to charge the piece-count
         penalty against a rewrite's loss improvement.
         """
         return -1 if self.kind == "delete" else 1
@@ -125,6 +132,11 @@ class StochasticRewriteDescent:
         lambda_eta: float = 0.5,
         lambda_min: float = 1e-5,
         lambda_max: float = 1.0,
+        count_objective: bool = False,
+        count_target_iou: float = 0.90,
+        count_lambda: float = 2000.0,
+        count_power: float = 2.0,
+        count_softplus_beta: float = 0.0,
         lambda_area: float = 0.05,
         min_patch_area: float = 0.01,
         max_patches: int = 200,
@@ -133,6 +145,9 @@ class StochasticRewriteDescent:
         max_deletions: int = 3,
         cooldown_steps: int = 30,
         candidate_count: int = 64,
+        add_weight: float = 0.35,
+        delete_weight: float = 0.15,
+        split_weight: float = 0.50,
         scene_box_size: float = 5.0,
         rewrite_eval_steps: int = 4,
         no_contribution_alpha: float = 1e-5,
@@ -155,6 +170,16 @@ class StochasticRewriteDescent:
         self.lambda_eta = float(lambda_eta)
         self.lambda_min = float(lambda_min)
         self.lambda_max = float(lambda_max)
+        # Piece-count objective (see _count_objective_value). When on, rewrites
+        # are scored by the change in
+        #     J = n_patches + count_lambda * hinge(target_iou - mean_iou)^power
+        # instead of by the change in image loss, so lambda_count is unused.
+        self.count_objective = bool(count_objective)
+        self.count_target_iou = float(count_target_iou)
+        self.count_lambda = float(count_lambda)
+        self.count_power = float(count_power)
+        self.count_softplus_beta = float(count_softplus_beta)
+        self._baseline_objective: float | None = None
         self.lambda_area = lambda_area
         self.min_patch_area = min_patch_area
         self.max_patches = max_patches
@@ -163,6 +188,22 @@ class StochasticRewriteDescent:
         self.max_deletions = max_deletions
         self.cooldown_steps = cooldown_steps
         self.candidate_count = candidate_count
+        # How the per-step candidate budget is divided between the three
+        # rewrite kinds. These are proportions, not probabilities of
+        # acceptance: they say how many candidates of each kind SRD gets to
+        # *look at* each rewrite step, and every candidate still has to beat
+        # the loss before it is applied. Normalized so any positive triple
+        # works; the defaults are the historical 0.35/0.15/0.50 split.
+        weights = np.array(
+            [max(0.0, float(add_weight)),
+             max(0.0, float(delete_weight)),
+             max(0.0, float(split_weight))],
+            dtype=np.float64,
+        )
+        if weights.sum() <= 0.0:
+            weights = np.array([0.35, 0.15, 0.50], dtype=np.float64)
+        weights /= weights.sum()
+        self.add_weight, self.delete_weight, self.split_weight = (float(w) for w in weights)
         self.scene_box_size = scene_box_size
         self.rewrite_eval_steps = rewrite_eval_steps
         self.no_contribution_alpha = no_contribution_alpha
@@ -177,7 +218,6 @@ class StochasticRewriteDescent:
         self.disable_splitting = bool(disable_splitting)
         self._swept_point_order = np.empty(0, dtype=np.int64)
         self._swept_point_cursor = 0
-        self.deleted_history: list[dict] = []
         self.stats = SRDStats()
 
     def step(
@@ -226,6 +266,13 @@ class StochasticRewriteDescent:
                 current_loss_tensor, _ = model._loss_from_renders(render1, render2, model.patches)
                 current_loss = float(current_loss_tensor.detach().cpu())
 
+        # Baseline for the piece-count objective, measured after the mandatory
+        # deletions above so candidates are scored against the configuration
+        # they will actually be applied to.
+        self._baseline_objective = (
+            self._current_count_objective(model) if self.count_objective else None
+        )
+
         uncovered_masks = self._uncovered_target_masks(model)
         candidates = self._sample_rewrites(model, current_step, uncovered_masks)
         scored: list[RewriteCandidate] = []
@@ -253,7 +300,8 @@ class StochasticRewriteDescent:
             patch_ref = candidate.applied_index if candidate.applied_index is not None else candidate.patch_index
             print(f"  Mandatory {candidate.label} at patch {patch_ref}, reason={candidate.reason}")
         print(
-            f"  Total patches: {len(model.patches)}, total adds: {self.stats.total_added}, "
+            f"  Total patches: {len(model.patches)}, total adds: {self.stats.total_adds}, "
+            f"total splits: {self.stats.total_splits}, "
             f"total deletes: {self.stats.total_deleted}"
         )
         return self.stats
@@ -492,6 +540,64 @@ class StochasticRewriteDescent:
             model.optim.zero_grad(set_to_none=True)
             model._post_step_constraints(valid_shape_states, model.optim)
 
+    def _count_objective_value(self, n_patches: int, mean_iou: float) -> float:
+        """Pieces, penalized only while mean IoU is below the threshold.
+
+            J = n_patches + count_lambda * hinge(target_iou - mean_iou)^power
+
+        The point of the hinge is that the IoU term switches *off* once the
+        sculpture is good enough: above ``count_target_iou`` every rewrite is
+        scored purely on how many pieces it costs, so SRD spends the rest of
+        the run shedding them, and it only pays for IoU when it has fallen
+        back below the threshold. Contrast ``lambda_count``, which charges for
+        pieces at all times and so keeps trading IoU away however good the fit
+        already is.
+
+        ``count_lambda`` is an exchange rate: it says how many pieces one unit
+        of squared IoU deficit is worth. Because the penalty is quadratic its
+        slope vanishes at the threshold, so a run settles slightly below the
+        target; ``count_softplus_beta`` > 0 replaces the kink with a softplus
+        of that sharpness, which is smooth but also leaks a little penalty
+        above the threshold. ``count_power`` 1 keeps a constant slope right up
+        to the threshold instead.
+        """
+        deficit = self.count_target_iou - float(mean_iou)
+        beta = self.count_softplus_beta
+        if beta > 0.0:
+            # softplus(beta * deficit) / beta, in the overflow-safe form.
+            scaled = beta * deficit
+            hinge = max(scaled, 0.0) + float(np.log1p(np.exp(-abs(scaled))))
+            hinge /= beta
+        else:
+            hinge = max(0.0, deficit)
+        return float(n_patches) + self.count_lambda * hinge ** self.count_power
+
+    def _mean_iou_from_renders(
+        self,
+        model,
+        render1: torch.Tensor,
+        render2: torch.Tensor,
+    ) -> float:
+        """Mean silhouette IoU of renders already in hand (no extra render)."""
+        stats1 = model._silhouette_stats(render1.detach().cpu(), model.target1_mask)
+        if model.target2_mask is None:
+            return float(stats1["iou"])
+        stats2 = model._silhouette_stats(render2.detach().cpu(), model.target2_mask)
+        return float(stats1["iou"] + stats2["iou"]) / 2.0
+
+    def _current_count_objective(self, model) -> float:
+        with torch.no_grad():
+            render1, render2 = model.renderer.render_both(
+                model.patches,
+                model.camera1,
+                model.camera2,
+                model.render_resolutions,
+            )
+        return self._count_objective_value(
+            len(model.patches),
+            self._mean_iou_from_renders(model, render1, render2),
+        )
+
     def _current_model_loss(self, model) -> float:
         with torch.no_grad():
             render1, render2 = model.renderer.render_both(
@@ -651,6 +757,27 @@ class StochasticRewriteDescent:
                     model.render_resolutions,
                 )
                 new_loss, _ = model._loss_from_renders(render1_new, render2_new, model.patches)
+
+            if self.count_objective:
+                # Minimise pieces subject to the IoU threshold: score the
+                # rewrite by how much it lowers J, not the image loss. A
+                # deletion is worth a full piece whenever the survivors still
+                # clear the threshold; an addition has to buy back more than
+                # one piece worth of IoU deficit to be accepted.
+                baseline = (
+                    self._baseline_objective
+                    if self._baseline_objective is not None
+                    else self._count_objective_value(
+                        len(model.patches) - rewrite.net_count_change,
+                        self.count_target_iou,
+                    )
+                )
+                new_objective = self._count_objective_value(
+                    len(model.patches),
+                    self._mean_iou_from_renders(model, render1_new, render2_new),
+                )
+                return baseline - new_objective
+
             raw_improvement = current_loss - float(new_loss.detach().cpu())
             # Piece-count regularization: SRD optimizes loss + lambda_count *
             # n_patches, so a rewrite must beat the loss by more than
@@ -664,7 +791,7 @@ class StochasticRewriteDescent:
 
     def _rewrite_eval_steps(self, rewrite: RewriteCandidate) -> int:
         """Use a slightly longer local lookahead for growth rewrites."""
-        if rewrite.kind in ("add", "restore", "split"):
+        if rewrite.kind in ("add", "split"):
             return max(1, self.rewrite_eval_steps)
         return 1
 
@@ -675,9 +802,9 @@ class StochasticRewriteDescent:
         uncovered_masks: tuple[np.ndarray, np.ndarray | None] | None = None,
     ) -> list[RewriteCandidate]:
         candidates: list[RewriteCandidate] = []
-        add_budget = int(round(self.candidate_count * 0.35))
-        delete_budget = int(round(self.candidate_count * 0.15))
-        split_budget = self.candidate_count - add_budget - delete_budget
+        add_budget = int(round(self.candidate_count * self.add_weight))
+        delete_budget = int(round(self.candidate_count * self.delete_weight))
+        split_budget = max(0, self.candidate_count - add_budget - delete_budget)
         if self.disable_splitting:
             add_budget += split_budget
             split_budget = 0
@@ -691,38 +818,34 @@ class StochasticRewriteDescent:
             add_budget = self.candidate_count - split_budget
 
         for _ in range(add_budget):
-            if np.random.random() < 0.35 and self.deleted_history:
-                hist_idx = int(np.random.randint(0, len(self.deleted_history)))
-                candidates.append(RewriteCandidate(
-                    kind="restore",
-                    history_index=hist_idx,
-                    patch_state=copy.deepcopy(self.deleted_history[hist_idx]),
-                ))
+            if (
+                self.swept_volume is not None
+                and not self.disable_swept_volume_adds
+                and np.random.random() < self.swept_volume_spawn_fraction
+            ):
+                position = self._sample_guided_swept_volume_position(
+                    model,
+                    uncovered_masks,
+                )
+                if position is None:
+                    continue
             else:
-                if (
-                    self.swept_volume is not None
-                    and not self.disable_swept_volume_adds
-                    and np.random.random() < self.swept_volume_spawn_fraction
-                ):
-                    position = self._sample_guided_swept_volume_position(
-                        model,
-                        uncovered_masks,
-                    )
-                    if position is None:
-                        continue
-                else:
-                    position = np.random.uniform(
-                        -self.scene_box_size * 0.5,
-                        self.scene_box_size * 0.5,
-                        size=3,
-                    ).astype(np.float32)
-                candidates.append(RewriteCandidate(kind="add", position=position))
+                position = np.random.uniform(
+                    -self.scene_box_size * 0.5,
+                    self.scene_box_size * 0.5,
+                    size=3,
+                ).astype(np.float32)
+            candidates.append(RewriteCandidate(kind="add", position=position))
 
         eligible_delete_indices = [
             idx for idx, patch in enumerate(model.patches)
             if current_step - int(getattr(patch, "creation_step", 0)) >= self.cooldown_steps
             and (
                 self.loss_only_deletion
+                # Under the piece-count objective every piece has to be a
+                # deletion candidate: the whole point is to shed pieces the
+                # sculpture can spare, and those are usually full-size ones.
+                or self.count_objective
                 or float(patch.compute_area().detach().cpu()) <= self.min_patch_area
             )
         ]
@@ -854,7 +977,6 @@ class StochasticRewriteDescent:
     def _select_compatible(self, candidates: Sequence[RewriteCandidate]) -> list[RewriteCandidate]:
         accepted: list[RewriteCandidate] = []
         touched_indices: set[int] = set()
-        restored_history: set[int] = set()
         additions = 0
         deletions = 0
 
@@ -881,10 +1003,6 @@ class StochasticRewriteDescent:
 
             if additions >= self.max_additions:
                 continue
-            if candidate.kind == "restore":
-                if candidate.history_index is None or candidate.history_index in restored_history:
-                    continue
-                restored_history.add(candidate.history_index)
             additions += 1
             accepted.append(candidate)
 
@@ -903,14 +1021,8 @@ class StochasticRewriteDescent:
         indexed_rewrites = [r for r in rewrites if r.kind in ("delete", "split")]
         for rewrite in sorted(indexed_rewrites, key=lambda r: r.patch_index or 0, reverse=True):
             self._apply_single(model, rewrite, current_step=current_step, tentative=False)
-        restored_history_indices: list[int] = []
         for rewrite in [r for r in rewrites if r.kind not in ("delete", "split")]:
             self._apply_single(model, rewrite, current_step=current_step, tentative=False)
-            if rewrite.kind == "restore" and rewrite.history_index is not None:
-                restored_history_indices.append(rewrite.history_index)
-        for history_index in sorted(set(restored_history_indices), reverse=True):
-            if 0 <= history_index < len(self.deleted_history):
-                self.deleted_history.pop(history_index)
 
         model.optim = self._rebuild_optimizer(model, optimizer)
         model._post_step_constraints()
@@ -929,7 +1041,6 @@ class StochasticRewriteDescent:
             patch = model.patches.pop(rewrite.patch_index)
             rewrite.applied_index = rewrite.patch_index
             if not tentative:
-                self.deleted_history.append(patch.to_dict())
                 self.stats.deleted += 1
                 self.stats.total_deleted += 1
                 pos = patch.center.detach().cpu().numpy()
@@ -953,30 +1064,11 @@ class StochasticRewriteDescent:
             model.patches.extend([child_a, child_b])
             rewrite.applied_index = rewrite.patch_index
             if not tentative:
-                self.deleted_history.append(patch.to_dict())
                 self.stats.added += 1
-                self.stats.total_added += 1
+                self.stats.total_splits += 1
                 print(
                     f"[SRD rewrite] split patch={rewrite.patch_index}, "
                     f"children={len(model.patches) - 2},{len(model.patches) - 1}, "
-                    f"improvement={rewrite.improvement:.6f}"
-                )
-            return
-
-        if rewrite.kind == "restore" and rewrite.patch_state is not None:
-            patch = Patch.from_dict(copy.deepcopy(rewrite.patch_state), device=model.device)
-            if patch.is_self_intersecting():
-                return
-            patch.creation_step = current_step
-            model.patches.append(patch)
-            rewrite.applied_index = len(model.patches) - 1
-            if not tentative:
-                self.stats.added += 1
-                self.stats.total_added += 1
-                pos = patch.center.detach().cpu().numpy()
-                print(
-                    f"[SRD rewrite] restored patch={rewrite.applied_index}, "
-                    f"position=({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}), "
                     f"improvement={rewrite.improvement:.6f}"
                 )
             return
@@ -997,7 +1089,7 @@ class StochasticRewriteDescent:
         rewrite.applied_index = len(model.patches) - 1
         if not tentative:
             self.stats.added += 1
-            self.stats.total_added += 1
+            self.stats.total_adds += 1
             pos = patch.center.detach().cpu().numpy()
             print(
                 f"[SRD rewrite] added patch={rewrite.applied_index}, "
