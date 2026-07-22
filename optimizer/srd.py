@@ -55,6 +55,16 @@ class RewriteCandidate:
             return f"RestorePatch({self.history_index})"
         return "AddPatch"
 
+    @property
+    def net_count_change(self) -> int:
+        """Change in the scene's patch count if this rewrite is applied.
+
+        A delete removes one piece; an add, restore or split each net one more
+        (a split turns one patch into two). Used to charge the piece-count
+        penalty against a rewrite's loss improvement.
+        """
+        return -1 if self.kind == "delete" else 1
+
 
 def _patch_parameters(patches: Sequence[Patch]) -> list[torch.nn.Parameter]:
     params: list[torch.nn.Parameter] = []
@@ -110,6 +120,11 @@ class StochasticRewriteDescent:
         enabled: bool = True,
         interval: int = 50,
         lambda_count: float = 0.05,
+        lambda_mode: str = "fixed",
+        lambda_target_iou: float = 0.90,
+        lambda_eta: float = 0.5,
+        lambda_min: float = 1e-5,
+        lambda_max: float = 1.0,
         lambda_area: float = 0.05,
         min_patch_area: float = 0.01,
         max_patches: int = 200,
@@ -132,6 +147,14 @@ class StochasticRewriteDescent:
         self.enabled = enabled
         self.interval = interval
         self.lambda_count = lambda_count
+        # Piece-count penalty schedule. "fixed" holds lambda_count constant; in
+        # "dual" mode it is a Lagrange multiplier on the constraint
+        # mean_iou >= lambda_target_iou, adapted by update_lambda_count().
+        self.lambda_mode = lambda_mode
+        self.lambda_target_iou = float(lambda_target_iou)
+        self.lambda_eta = float(lambda_eta)
+        self.lambda_min = float(lambda_min)
+        self.lambda_max = float(lambda_max)
         self.lambda_area = lambda_area
         self.min_patch_area = min_patch_area
         self.max_patches = max_patches
@@ -283,12 +306,15 @@ class StochasticRewriteDescent:
         while patch_index < len(model.patches) and len(model.patches) > 1:
             stats["evaluated"] += 1.0
             loss_without_patch = self._loss_without_patch(model, patch_index)
-            if loss_without_patch < current_loss:
+            # Keep a piece only if removing it worsens the loss by more than
+            # lambda_count, i.e. delete whenever the piece-count-penalized
+            # objective (loss + lambda_count * n_patches) improves.
+            if loss_without_patch < current_loss + self.lambda_count:
                 rewrite = RewriteCandidate(
                     kind="delete",
                     patch_index=patch_index,
-                    improvement=current_loss - loss_without_patch,
-                    reason="final deletion pass improved loss",
+                    improvement=current_loss - loss_without_patch + self.lambda_count,
+                    reason="final deletion pass improved piece-count-penalized loss",
                 )
                 self._apply_single(
                     model,
@@ -306,6 +332,165 @@ class StochasticRewriteDescent:
 
         model._post_step_constraints()
         return stats
+
+    def update_lambda_count(self, current_iou: float) -> float:
+        """Dual-ascent update of the piece-count penalty (``lambda_mode='dual'``).
+
+        A fixed ``lambda_count`` is an *absolute* threshold in loss units: a
+        rewrite must beat the loss by more than lambda per piece it adds. The
+        marginal loss a single piece can buy is shape-dependent, though -- a
+        complicated silhouette is covered by many pieces that each win a little,
+        a simple one by a few that each win a lot. So one global lambda rations
+        pieces hardest exactly where each piece is worth least, i.e. on the
+        shapes that need the most pieces. That is backwards.
+
+        Dual ascent states the goal directly instead: minimise piece count
+        subject to ``mean_iou >= lambda_target_iou``, with lambda_count as the
+        multiplier on that constraint,
+
+            lambda <- clip(lambda * exp(eta * (iou - target)), min, max)
+
+        Above target, lambda rises and additions stop paying for themselves;
+        below it, lambda decays and growth unblocks. Each shape therefore
+        settles at its own lambda, and that converged value is a difficulty
+        score: a shape that needs 30 pieces to hit the target drives lambda
+        down and keeps them, one that needs 15 drives it up and sheds the rest.
+
+        The update is multiplicative, so lambda_min must stay above zero -- a
+        lambda that reaches 0 can never grow again.
+        """
+        if self.lambda_mode != "dual":
+            return self.lambda_count
+        error = float(current_iou) - self.lambda_target_iou
+        scaled = self.lambda_count * float(np.exp(self.lambda_eta * error))
+        self.lambda_count = float(np.clip(scaled, self.lambda_min, self.lambda_max))
+        return self.lambda_count
+
+    def pruning_path(
+        self,
+        model,
+        optimizer: torch.optim.Optimizer,
+        *,
+        min_pieces: int = 1,
+        refit_steps: int = 4,
+        iou_tolerance: float = 0.01,
+        target_iou: float | None = None,
+    ) -> tuple[list[dict], dict]:
+        """Delete the least-damaging piece repeatedly, recording IoU at every count.
+
+        This is the measurement counterpart to ``lambda_count``: rather than
+        pick a penalty and see what piece count falls out, walk the entire
+        IoU-vs-pieces curve for *this* shape in a single run, then choose the
+        count from the curve. One run yields the whole tradeoff, so there is
+        nothing left for a lambda sweep to discover.
+
+        Two things differ from ``final_deletion_pass``, and both matter:
+
+        * It deletes the **argmin-damage** piece each round. The deletion pass
+          walks ``patch_index`` in order and removes the first piece under
+          threshold, which is an arbitrary order, not a cheapest-first one.
+        * It **re-fits** the survivors for ``refit_steps`` gradient steps after
+          each commit. Scoring a deletion on frozen geometry overstates its
+          cost, because the neighbouring pieces would have grown to cover the
+          hole. Without this the curve reads far more pessimistic than the
+          configuration a real run would reach at that piece count.
+
+        Candidate *scoring* stays frozen (no_grad, no re-fit) -- that is the
+        O(n^2) part, and re-fitting every candidate would multiply the whole
+        pass by ``refit_steps``. Only the committed deletion is re-fit.
+
+        Returns ``(path, selected)``: one row per piece count from the starting
+        configuration down to ``min_pieces``, and the row the model was left
+        at. Selection keeps the *fewest* pieces that still reach ``target_iou``
+        if one is given, else the fewest within ``iou_tolerance`` of the best
+        mean IoU seen anywhere on the path. The model and optimizer are
+        restored to that configuration, so the run ends at the knee rather than
+        at one piece.
+        """
+        path: list[dict] = []
+        if not self.enabled or len(model.patches) <= 1:
+            return path, {}
+
+        floor = max(1, int(min_pieces))
+        # Snapshot every configuration so the chosen one can be restored after
+        # the path has walked past it.
+        snapshots: dict[int, tuple[list[dict], dict]] = {}
+
+        def record(deleted_index: int | None) -> None:
+            metrics, _, _ = model.evaluate_snapshot()
+            n = len(model.patches)
+            snapshots[n] = self._save_state(model, model.optim)
+            path.append({
+                "patches": n,
+                "deleted_patch_index": -1 if deleted_index is None else deleted_index,
+                "loss": float(metrics.get("loss", 0.0)),
+                "mean_iou": float(metrics.get("mean_iou", 0.0)),
+                "view1_iou": float(metrics.get("view1_iou", 0.0)),
+                "view2_iou": float(metrics.get("view2_iou", 0.0)),
+                "mean_coverage": float(metrics.get("mean_coverage", 0.0)),
+                "mean_precision": float(metrics.get("mean_precision", 0.0)),
+                "mean_spill": float(metrics.get("mean_spill", 0.0)),
+            })
+
+        record(None)
+
+        while len(model.patches) > floor:
+            # Score every remaining piece frozen, cheapest deletion first.
+            losses = [
+                self._loss_without_patch(model, idx)
+                for idx in range(len(model.patches))
+            ]
+            victim = int(np.argmin(losses))
+            self._apply_single(
+                model,
+                RewriteCandidate(
+                    kind="delete",
+                    patch_index=victim,
+                    reason="pruning path: least-damaging remaining piece",
+                ),
+                current_step=0,
+                tentative=False,
+            )
+            model.optim = self._rebuild_optimizer(model, model.optim)
+            model._post_step_constraints()
+            self._refit(model, refit_steps)
+            record(victim)
+
+        best_iou = max(row["mean_iou"] for row in path)
+        threshold = target_iou if target_iou is not None else best_iou - iou_tolerance
+        eligible = [row for row in path if row["mean_iou"] >= threshold]
+        # If the target is unreachable for this shape, fall back to the best
+        # point on the path rather than to the smallest -- an unmeetable
+        # constraint should not silently collapse the sculpture to one piece.
+        selected = (
+            min(eligible, key=lambda row: row["patches"])
+            if eligible
+            else max(path, key=lambda row: row["mean_iou"])
+        )
+        selected = dict(selected)
+        selected["target_reached"] = bool(eligible)
+        selected["threshold"] = float(threshold)
+
+        patch_states, optimizer_state = snapshots[selected["patches"]]
+        self._restore_state(model, model.optim, patch_states, optimizer_state)
+        return path, selected
+
+    def _refit(self, model, n_steps: int) -> None:
+        """Run ``n_steps`` gradient steps on the current patch set."""
+        for _ in range(max(0, int(n_steps))):
+            valid_shape_states = model._capture_patch_shape_states()
+            model.optim.zero_grad(set_to_none=True)
+            render1, render2 = model.renderer.render_both(
+                model.patches,
+                model.camera1,
+                model.camera2,
+                model.render_resolutions,
+            )
+            loss, _ = model._loss_from_renders(render1, render2, model.patches)
+            loss.backward()
+            model.optim.step()
+            model.optim.zero_grad(set_to_none=True)
+            model._post_step_constraints(valid_shape_states, model.optim)
 
     def _current_model_loss(self, model) -> float:
         with torch.no_grad():
@@ -466,7 +651,14 @@ class StochasticRewriteDescent:
                     model.render_resolutions,
                 )
                 new_loss, _ = model._loss_from_renders(render1_new, render2_new, model.patches)
-            return current_loss - float(new_loss.detach().cpu())
+            raw_improvement = current_loss - float(new_loss.detach().cpu())
+            # Piece-count regularization: SRD optimizes loss + lambda_count *
+            # n_patches, so a rewrite must beat the loss by more than
+            # lambda_count for every piece it adds, and is rebated lambda_count
+            # for every piece it removes. At lambda_count = 0 this is the raw
+            # loss reduction, and the acceptance gate (improvement > 0) is
+            # unchanged.
+            return raw_improvement - self.lambda_count * rewrite.net_count_change
         finally:
             self._restore_state(model, optimizer, saved_patches, saved_optimizer_state)
 

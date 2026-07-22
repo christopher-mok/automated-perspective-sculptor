@@ -562,8 +562,12 @@ class SceneOptimizer:
             "overlap_repair_shift": float(self.last_repair_shift),
         }
 
-    def _calculate_iou(self, render: torch.Tensor, target_mask: torch.Tensor) -> float:
-        """Intersection over Union between the rendered and target silhouettes.
+    def _silhouette_stats(
+        self,
+        render: torch.Tensor,
+        target_mask: torch.Tensor,
+    ) -> dict[str, float]:
+        """IoU and its false-positive/false-negative decomposition.
 
         `target_mask` must be a foreground mask as produced by
         `foreground_mask_from_image` (shape (H, W, 1), float in 0..1), not a
@@ -571,6 +575,23 @@ class SceneOptimizer:
         the targets are flat shapes whose silhouette lives in the alpha channel,
         so a black shape quantises to an all-zero RGB image and would score a
         constant IoU of 0 regardless of how well the render matched it.
+
+        IoU already charges for negative space: area the render covers but the
+        target does not enters the union, so spilling outside the silhouette
+        lowers it just as failing to fill it does. What IoU cannot tell you is
+        *which* of the two happened, so the decomposition is reported alongside:
+
+            coverage   |R & T| / |T|   how much of the target got filled
+            precision  |R & T| / |R|   how much of the render landed on target
+            spill      |R & ~T| / |T|  area covered that should be empty,
+                                       as a fraction of the target's own area
+
+        `spill` is the negative-space number: 0 means the render never paints
+        outside the silhouette, 0.5 means it wrongly covers an extra half of a
+        target's worth of background. It is normalised by the target area
+        rather than by the frame so that it stays sensitive -- the background
+        is most of the image, so an IoU taken over the complement masks would
+        sit near 1.0 for every run and separate nothing.
         """
         # Convert to CPU numpy if needed
         if isinstance(render, torch.Tensor):
@@ -599,15 +620,22 @@ class SceneOptimizer:
                 f"target mask {target_binary.shape}"
             )
 
-        intersection = (render_binary & target_binary).sum()
-        union = (render_binary | target_binary).sum()
+        intersection = float((render_binary & target_binary).sum())
+        union = float((render_binary | target_binary).sum())
+        render_area = float(render_binary.sum())
+        target_area = float(target_binary.sum())
+        false_positive = render_area - intersection
 
-        # Avoid division by zero
-        if union == 0:
-            return 0.0
+        return {
+            "iou": intersection / union if union else 0.0,
+            "coverage": intersection / target_area if target_area else 0.0,
+            "precision": intersection / render_area if render_area else 0.0,
+            "spill": false_positive / target_area if target_area else 0.0,
+        }
 
-        iou = float(intersection) / float(union)
-        return iou
+    def _calculate_iou(self, render: torch.Tensor, target_mask: torch.Tensor) -> float:
+        """Intersection over Union between the rendered and target silhouettes."""
+        return self._silhouette_stats(render, target_mask)["iou"]
 
     def _loss_from_renders(
         self,
@@ -776,18 +804,24 @@ class SceneOptimizer:
             )
             metrics = self._metrics_from_components(loss, components)
 
-            # Add IOU metrics
+            # Add IOU metrics, plus the coverage/precision/spill decomposition
+            # that says whether a given IoU is losing area to unfilled target
+            # or to render spilling into negative space.
             render1_cpu = render1.detach().cpu()
             render2_cpu = render2.detach().cpu()
-            iou1 = self._calculate_iou(render1_cpu, self.target1_mask)
-            iou2 = (
-                self._calculate_iou(render2_cpu, self.target2_mask)
-                if self.target2_mask is not None else 0.0
+            stats1 = self._silhouette_stats(render1_cpu, self.target1_mask)
+            stats2 = (
+                self._silhouette_stats(render2_cpu, self.target2_mask)
+                if self.target2_mask is not None
+                else {"iou": 0.0, "coverage": 0.0, "precision": 0.0, "spill": 0.0}
             )
-            metrics["view1_iou"] = iou1
+            for key, value in stats1.items():
+                metrics[f"view1_{key}"] = value
             if self.target2 is not None:
-                metrics["view2_iou"] = iou2
-                metrics["mean_iou"] = (iou1 + iou2) / 2.0
+                for key, value in stats2.items():
+                    metrics[f"view2_{key}"] = value
+                for key in stats1:
+                    metrics[f"mean_{key}"] = (stats1[key] + stats2[key]) / 2.0
 
         return (
             metrics,

@@ -50,6 +50,13 @@ IMAGE_PAIRS: dict[str, tuple[str, str]] = {
     "cat_face_bass": ("cat_face.png", "bass.png"),
     "water_fire": ("water.png", "fire.png"),
     "acm_scf": ("acm.png", "scf.png"),
+    # Harder pairs: two detailed silhouettes rather than one shape against a
+    # simple primitive, so both views compete for the same geometry.
+    "siggraph_sigchi": ("siggraph.png", "sigchi.png"),
+    "crane_crab": ("crane.png", "crab.png"),
+    "teapot_droplets": ("teapot.png", "droplets.png"),
+    "dancer_guitar": ("dancer.png", "guitar.png"),
+    "dance_argument": ("dance.png", "argument.png"),
 }
 
 # Run setting -> extra run_ablation.py flags.
