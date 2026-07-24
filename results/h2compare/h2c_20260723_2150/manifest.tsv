@@ -1,0 +1,15 @@
+job_id	job_name	pair	arm	output_dir
+4242942	h2c_sun_moon_free	sun_moon	free	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_sun_moon_free
+4242943	h2c_sun_moon_hinge2	sun_moon	hinge2	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_sun_moon_hinge2
+4242944	h2c_water_fire_free	water_fire	free	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_water_fire_free
+4242945	h2c_water_fire_hinge2	water_fire	hinge2	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_water_fire_hinge2
+4242946	h2c_cat_face_bass_free	cat_face_bass	free	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_cat_face_bass_free
+4242947	h2c_cat_face_bass_hinge2	cat_face_bass	hinge2	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_cat_face_bass_hinge2
+4242948	h2c_dance_argument_free	dance_argument	free	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_dance_argument_free
+4242949	h2c_dance_argument_hinge2	dance_argument	hinge2	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_dance_argument_hinge2
+4242950	h2c_horse_circle_free	horse_circle	free	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_horse_circle_free
+4242951	h2c_horse_circle_hinge2	horse_circle	hinge2	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_horse_circle_hinge2
+4242952	h2c_acm_scf_free	acm_scf	free	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_acm_scf_free
+4242953	h2c_acm_scf_hinge2	acm_scf	hinge2	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_acm_scf_hinge2
+4242954	h2c_teapot_droplets_free	teapot_droplets	free	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_teapot_droplets_free
+4242955	h2c_teapot_droplets_hinge2	teapot_droplets	hinge2	/oscar/home/cjmok/aps-hinge2/results/h2compare/h2c_20260723_2150/h2c_teapot_droplets_hinge2
