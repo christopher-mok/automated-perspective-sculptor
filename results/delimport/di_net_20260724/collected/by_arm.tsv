@@ -1,0 +1,2 @@
+arm	n	final_mean_iou	best_mean_iou	final_mean_tversky	best_mean_tversky	final_patches	max_patches	final_mean_spill	final_mean_coverage	srd_total_deletes	final_step	total_seconds
+srd_importance	7	0.828541	0.83297	0.95692	0.96049	18.1429	20	0.0233623	0.846933	1.85714	1985.71	7150.11

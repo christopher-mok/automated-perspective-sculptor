@@ -1,0 +1,8 @@
+job_id	job_name	pair	arm	silhouette_weight	negative_space_weight	output_dir
+4267344	di_sun_moon_srd_importance	sun_moon	srd_importance	0.136364	4.36364	/oscar/home/cjmok/aps-hinge2/results/delimport/di_net_20260724/di_sun_moon_srd_importance
+4267345	di_water_fire_srd_importance	water_fire	srd_importance	0.136364	4.36364	/oscar/home/cjmok/aps-hinge2/results/delimport/di_net_20260724/di_water_fire_srd_importance
+4267346	di_cat_face_bass_srd_importance	cat_face_bass	srd_importance	0.136364	4.36364	/oscar/home/cjmok/aps-hinge2/results/delimport/di_net_20260724/di_cat_face_bass_srd_importance
+4267347	di_dance_argument_srd_importance	dance_argument	srd_importance	0.136364	4.36364	/oscar/home/cjmok/aps-hinge2/results/delimport/di_net_20260724/di_dance_argument_srd_importance
+4267348	di_horse_circle_srd_importance	horse_circle	srd_importance	0.136364	4.36364	/oscar/home/cjmok/aps-hinge2/results/delimport/di_net_20260724/di_horse_circle_srd_importance
+4267349	di_acm_scf_srd_importance	acm_scf	srd_importance	0.136364	4.36364	/oscar/home/cjmok/aps-hinge2/results/delimport/di_net_20260724/di_acm_scf_srd_importance
+4267350	di_teapot_droplets_srd_importance	teapot_droplets	srd_importance	0.136364	4.36364	/oscar/home/cjmok/aps-hinge2/results/delimport/di_net_20260724/di_teapot_droplets_srd_importance
