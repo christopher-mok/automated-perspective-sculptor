@@ -1,0 +1,2 @@
+config	arm	n	final_mean_iou	best_mean_iou	final_mean_tversky	best_mean_tversky	final_patches	max_patches	final_mean_spill	final_mean_coverage	srd_total_deletes	final_step	total_seconds
+nonorm4	importnet	7	0.770886	0.792671	0.920423	0.935081	17.4286	20	0.0528377	0.806151	2.57143	1846.43	6528.24

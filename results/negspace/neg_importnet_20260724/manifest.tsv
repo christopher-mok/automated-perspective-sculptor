@@ -1,0 +1,8 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+4273745	neg_sun_moon_importnet_nonorm4	sun_moon	importnet	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_importnet_20260724/neg_sun_moon_importnet_nonorm4
+4273746	neg_water_fire_importnet_nonorm4	water_fire	importnet	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_importnet_20260724/neg_water_fire_importnet_nonorm4
+4273747	neg_cat_face_bass_importnet_nonorm4	cat_face_bass	importnet	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_importnet_20260724/neg_cat_face_bass_importnet_nonorm4
+4273748	neg_dance_argument_importnet_nonorm4	dance_argument	importnet	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_importnet_20260724/neg_dance_argument_importnet_nonorm4
+4273749	neg_horse_circle_importnet_nonorm4	horse_circle	importnet	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_importnet_20260724/neg_horse_circle_importnet_nonorm4
+4273750	neg_acm_scf_importnet_nonorm4	acm_scf	importnet	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_importnet_20260724/neg_acm_scf_importnet_nonorm4
+4273751	neg_teapot_droplets_importnet_nonorm4	teapot_droplets	importnet	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_importnet_20260724/neg_teapot_droplets_importnet_nonorm4
