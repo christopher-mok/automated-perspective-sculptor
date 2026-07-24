@@ -1,0 +1,15 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+4275625	neg_sun_moon_srd_restart_nonorm4	sun_moon	srd_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_sun_moon_srd_restart_nonorm4
+4275626	neg_sun_moon_hinge2_restart_nonorm4	sun_moon	hinge2_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_sun_moon_hinge2_restart_nonorm4
+4275627	neg_water_fire_srd_restart_nonorm4	water_fire	srd_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_water_fire_srd_restart_nonorm4
+4275628	neg_water_fire_hinge2_restart_nonorm4	water_fire	hinge2_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_water_fire_hinge2_restart_nonorm4
+4275629	neg_cat_face_bass_srd_restart_nonorm4	cat_face_bass	srd_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_cat_face_bass_srd_restart_nonorm4
+4275630	neg_cat_face_bass_hinge2_restart_nonorm4	cat_face_bass	hinge2_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_cat_face_bass_hinge2_restart_nonorm4
+4275631	neg_dance_argument_srd_restart_nonorm4	dance_argument	srd_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_dance_argument_srd_restart_nonorm4
+4275632	neg_dance_argument_hinge2_restart_nonorm4	dance_argument	hinge2_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_dance_argument_hinge2_restart_nonorm4
+4275633	neg_horse_circle_srd_restart_nonorm4	horse_circle	srd_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_horse_circle_srd_restart_nonorm4
+4275634	neg_horse_circle_hinge2_restart_nonorm4	horse_circle	hinge2_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_horse_circle_hinge2_restart_nonorm4
+4275635	neg_acm_scf_srd_restart_nonorm4	acm_scf	srd_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_acm_scf_srd_restart_nonorm4
+4275636	neg_acm_scf_hinge2_restart_nonorm4	acm_scf	hinge2_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_acm_scf_hinge2_restart_nonorm4
+4275637	neg_teapot_droplets_srd_restart_nonorm4	teapot_droplets	srd_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_teapot_droplets_srd_restart_nonorm4
+4275638	neg_teapot_droplets_hinge2_restart_nonorm4	teapot_droplets	hinge2_restart	nonorm4	0.9	3.6	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_20260724/neg_teapot_droplets_hinge2_restart_nonorm4
