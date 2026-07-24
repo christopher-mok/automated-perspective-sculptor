@@ -1,0 +1,8 @@
+pair	group	n_seeds	constrained_iou	unconstrained_iou	delta_iou
+sun_moon	basic	2	0.94979	0.970327	+0.020537
+cat_face_bass	basic	2	0.946267	0.955348	+0.009081
+horse_circle	basic	2	0.932083	0.96492	+0.032837
+acm_scf	basic	2	0.847019	0.873452	+0.026433
+teapot_droplets	hard	2	0.844421	0.874255	+0.029834
+water_fire	hard	2	0.962253	0.967712	+0.005459
+dance_argument	hard	2	0.876919	0.893615	+0.016696
