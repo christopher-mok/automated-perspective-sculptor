@@ -5,7 +5,14 @@
       "Bash(python run_all_comparisons.py)",
       "Bash(pkill -f \"python run_all_comparisons.py\")",
       "Bash(timeout 120 python compare_srd.py --target1 images/horse.png --target2 images/circle.png --trials 1 --steps 50 --no-renders)",
-      "Bash(python compare_srd_patch_sizes.py --help)"
+      "Bash(python compare_srd_patch_sizes.py --help)",
+      "Bash(python compare_srd.py --target1 images/axe.png --target2 images/tree.png --trials 3 --steps 1000 --no-renders --output-dir \"comparisons/batch_20260718_000719/axe_tree\")",
+      "Bash(pip install *)",
+      "Bash(python -c \"import mapbox_earcut; print\\('✓ mapbox-earcut is installed and working'\\)\")",
+      "Bash(python -c \"import mapbox_earcut; print\\('mapbox-earcut installed OK'\\)\")",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'Current version: auto-run optimization after initialization, mapbox-earcut for proper geometry rendering *)"
     ]
   }
 }

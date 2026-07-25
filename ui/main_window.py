@@ -321,6 +321,9 @@ class MainWindow(QMainWindow):
         self._sync_export_enabled()
         print(f"[Initialize patches] {len(self._patches)} patches ({mode}, {device})")
 
+        # Auto-run optimization after initialization and swept volume precomputation
+        self._on_run_optimization()
+
     def _on_run_optimization(self) -> None:
         if self._benchmark_active:
             return
