@@ -93,32 +93,42 @@ running and will settle this.
 
 ## Swept-volume ablation
 
-`nonorm1p25`, 32 SRD candidates, `--lambda-count 0`. Matched on the 3 pairs all
-three arms finished — the swept-adds-ON arm is only 3/7 so far, so this is
-provisional.
+`nonorm1p25`, 32 SRD candidates, `--lambda-count 0`. **All three arms complete
+at 7/7**, matched on all 7 pairs.
 
 | swept adds | restart | IoU | pieces | spill | coverage | precision |
 |---|---|---|---|---|---|---|
-| **ON** | no | **0.8873** | **35.0** | 0.0544 | 0.932 | 0.949 |
-| OFF | no | 0.7874 | 20.0 | 0.0837 | 0.852 | 0.921 |
-| OFF | yes | 0.8410 | 20.3 | 0.0864 | 0.908 | 0.920 |
+| **ON** | no | **0.9104** | **33.3** | **0.0467** | **0.949** | **0.956** |
+| OFF | no | 0.8402 | 20.4 | 0.0651 | 0.889 | 0.937 |
+| OFF | yes | 0.8645 | 19.7 | 0.0653 | 0.915 | 0.937 |
 
 | pair | swept ON / no restart | swept OFF / no restart | swept OFF / restart |
 |---|---|---|---|
-| acm_scf | 0.8257 | 0.6636 | 0.7494 |
-| cat_face_bass | 0.9435 | 0.8879 | 0.9105 |
-| sun_moon | 0.8927 | 0.8108 | 0.8632 |
+| acm_scf | **0.8257** | 0.6636 | 0.7494 |
+| cat_face_bass | **0.9435** | 0.8879 | 0.9105 |
+| horse_circle | **0.9241** | 0.9157 | 0.8836 |
+| robot_man | **0.9566** | 0.8881 | 0.9370 |
+| sun_moon | **0.8927** | 0.8108 | 0.8632 |
+| teapot_droplets | **0.8522** | 0.7550 | 0.7557 |
+| water_fire | **0.9777** | 0.9603 | 0.9523 |
 
-**Disabling swept-volume-guided additions costs 10 IoU points** (0.887 → 0.787),
-consistent on all three pairs and largest on acm_scf at −16. Restart recovers
-about half of it (+5.4), but does not close the gap.
+**Disabling swept-volume-guided additions costs 7.0 IoU points** (0.9104 →
+0.8402). Swept-ON wins **all seven pairs**, by margins from 0.8 points
+(horse_circle) to 16.2 (acm_scf). It also wins spill, coverage and precision
+simultaneously, which nothing in the weight comparison does — this is not a
+tradeoff, it is strictly better.
 
-**The piece count is the striking part.** Without swept-volume guidance, runs end
-at exactly **20.0 pieces** — their starting count — and 20.3 with restart. With
-guidance they reach 35. Additions placed without swept-volume guidance are
-essentially never accepted by SRD's acceptance test. The swept volume is not
-merely improving where new pieces go; it is the reason any of them survive at
-all.
+**The piece count is the finding.** Without swept-volume guidance, runs end at
+**20.4 pieces** — their starting count — and 19.7 with restart, i.e. slightly
+*below* where they began. With guidance they reach 33.3. Additions placed
+without swept-volume guidance are essentially never accepted by SRD's
+acceptance test. The swept volume is not merely improving where new pieces go;
+it is the reason any of them survive at all.
+
+Restart recovers only 2.4 of the 7.0 points and is **not uniformly helpful**: it
+gains on five pairs (acm_scf +8.6, robot_man +4.9, sun_moon +5.2) but loses on
+horse_circle (−3.2) and water_fire (−0.8). Its mean gain is real but its
+per-pair sign is not reliable.
 
 Caveat: 32 candidates here against 64 in the weight sweeps, so these arms are not
 directly comparable to the table above — only to each other.
@@ -152,6 +162,7 @@ Per-run `history.csv` and the ~2400 render frames per run stay on Oscar.
 - `neg_awrec_restart_20260725` — 0/7, the restart partner for aw0p073
 - `neg_h2r_aw0p1875_20260725` — 0/7, hinge2+restart at aw0p1875 without
   importance deletion
-- `neg_swept_norestart_nonorm1p25_20260725` — 3/7, the swept-ON ablation arm
+- `neg_h2r_horsecircle_weights_20260725` — 0/3, hinge2+restart on horse_circle
+  across nonorm1p25 / aw0p073 / aw0p1875
 
 Single seed (0) throughout. No error bars.
