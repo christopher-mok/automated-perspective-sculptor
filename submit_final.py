@@ -93,6 +93,32 @@ def _weights(ratio: float, weight_sum: float) -> tuple[float, float]:
     return weight_sum - negative_space, negative_space
 
 
+def _parse_n_patches_map(spec: str | None) -> dict[str, int]:
+    """Parse 'pair=N,pair=N' into {pair: N}, for per-pair starting counts.
+
+    Used when the piece count is not a property of the sweep but of the pair --
+    e.g. seeding a no-SRD baseline at the count an SRD run converged to, which
+    differs per pair.
+    """
+    if not spec:
+        return {}
+    mapping: dict[str, int] = {}
+    for item in spec.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise SystemExit(f"--n-patches-map entry {item!r} is not pair=N")
+        pair, _, count = item.partition("=")
+        pair, count = pair.strip(), count.strip()
+        if pair not in IMAGE_PAIRS:
+            raise SystemExit(f"--n-patches-map: unknown pair {pair!r}")
+        if not count.isdigit() or int(count) < 1:
+            raise SystemExit(f"--n-patches-map: {pair} count {count!r} must be a positive integer")
+        mapping[pair] = int(count)
+    return mapping
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Submit the final comparison/ablation/overlap batches to SLURM.",
@@ -119,6 +145,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--eval-interval", type=int, default=25)
     parser.add_argument("--n-patches", type=int, default=20)
+    parser.add_argument("--n-patches-map", default=None,
+                        help="Per-pair starting piece counts as 'pair=N,pair=N', "
+                             "overriding --n-patches for those pairs only. For "
+                             "seeding a baseline at counts that differ per pair.")
     parser.add_argument("--swept-resolution", type=int, default=256)
     parser.add_argument("--swept-spawn-fraction", type=float, default=1.0)
     parser.add_argument("--weight-ratio", type=float, default=WEIGHT_RATIO)
@@ -183,9 +213,12 @@ def _build_jobs(args: argparse.Namespace, sweep_dir: Path) -> list[dict]:
     silhouette, negative_space = _weights(args.weight_ratio, args.weight_sum)
     prefix = "final" if args.experiment == "main" else "ovl"
 
+    patch_map = _parse_n_patches_map(args.n_patches_map)
+
     jobs: list[dict] = []
     for pair in args.pairs:
         target1, target2 = IMAGE_PAIRS[pair]
+        n_patches = patch_map.get(pair, args.n_patches)
         for config in _configurations(args):
             for seed in range(args.trials):
                 job_name = f"{prefix}_{pair}_{config['tag']}_seed{seed}"
@@ -199,7 +232,7 @@ def _build_jobs(args: argparse.Namespace, sweep_dir: Path) -> list[dict]:
                     "--seed", str(seed),
                     "--steps", str(args.steps),
                     "--eval-interval", str(args.eval_interval),
-                    "--n-patches", str(args.n_patches),
+                    "--n-patches", str(n_patches),
                     "--swept-resolution", str(args.swept_resolution),
                     "--swept-spawn-fraction", str(args.swept_spawn_fraction),
                     "--silhouette-weight", f"{silhouette:g}",
@@ -231,6 +264,7 @@ def _build_jobs(args: argparse.Namespace, sweep_dir: Path) -> list[dict]:
                     "overlap_mode": config["overlap_mode"],
                     "tag": config["tag"],
                     "seed": seed,
+                    "n_patches": n_patches,
                     "output_dir": output_dir,
                     "command": command,
                 })
@@ -271,11 +305,12 @@ def _submit(script_path: Path) -> str:
 
 def _write_manifest(sweep_dir: Path, rows: list[dict]) -> Path:
     manifest_path = sweep_dir / "manifest.tsv"
-    lines = ["job_id\tjob_name\tpair\tarm\toverlap_mode\tseed\toutput_dir"]
+    lines = ["job_id\tjob_name\tpair\tarm\toverlap_mode\tseed\tn_patches\toutput_dir"]
     for row in rows:
         lines.append(
             f"{row.get('job_id', '-')}\t{row['name']}\t{row['pair']}\t{row['arm']}\t"
-            f"{row['overlap_mode']}\t{row['seed']}\t{row['output_dir']}"
+            f"{row['overlap_mode']}\t{row['seed']}\t{row.get('n_patches', '-')}\t"
+            f"{row['output_dir']}"
         )
     manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return manifest_path

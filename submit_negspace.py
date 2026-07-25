@@ -162,6 +162,22 @@ ARM_SETTINGS: dict[str, dict] = {
         # rebuilt in place rather than dropped. A/B partner of the "hinge2" arm.
         "conflict_restart": True,
     },
+    "noswept": {
+        # Swept-volume ablation: --arm srd_no_swept sets
+        # disable_swept_volume_adds, so SRD additions are placed without the
+        # swept-volume guidance rather than sampled from it. The swept volume is
+        # still built and still seeds initialization -- run_final passes it to
+        # initialize_patches unconditionally -- so this ablates the *additions*
+        # only. A/B partner of the "srd" arm.
+        "base_arm": "srd_no_swept", "count_objective": False,
+    },
+    "noswept_restart": {
+        # The same swept-volume-additions ablation with conflict-gated restart
+        # allowed, so it pairs against "srd_restart" the way "noswept" pairs
+        # against "srd".
+        "base_arm": "srd_no_swept", "count_objective": False,
+        "conflict_restart": True,
+    },
     "hinge2_restart_importnet": {
         "base_arm": "srd", "count_objective": True,
         # Everything at once: fit-then-shed counting, conflict-gated restart,
