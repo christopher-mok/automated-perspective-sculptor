@@ -1,0 +1,8 @@
+job_id	job_name	pair	arm	overlap_mode	seed	n_patches	output_dir
+4283577	final_water_fire_basic_seed0	water_fire	basic	planar	0	9	/oscar/home/cjmok/aps-hinge2/results/final/baseline_h2pc_20260725/final_water_fire_basic_seed0
+4283578	final_cat_face_bass_basic_seed0	cat_face_bass	basic	planar	0	10	/oscar/home/cjmok/aps-hinge2/results/final/baseline_h2pc_20260725/final_cat_face_bass_basic_seed0
+4283579	final_robot_man_basic_seed0	robot_man	basic	planar	0	11	/oscar/home/cjmok/aps-hinge2/results/final/baseline_h2pc_20260725/final_robot_man_basic_seed0
+4283580	final_sun_moon_basic_seed0	sun_moon	basic	planar	0	18	/oscar/home/cjmok/aps-hinge2/results/final/baseline_h2pc_20260725/final_sun_moon_basic_seed0
+4283581	final_dance_argument_basic_seed0	dance_argument	basic	planar	0	29	/oscar/home/cjmok/aps-hinge2/results/final/baseline_h2pc_20260725/final_dance_argument_basic_seed0
+4283582	final_teapot_droplets_basic_seed0	teapot_droplets	basic	planar	0	35	/oscar/home/cjmok/aps-hinge2/results/final/baseline_h2pc_20260725/final_teapot_droplets_basic_seed0
+4283583	final_acm_scf_basic_seed0	acm_scf	basic	planar	0	44	/oscar/home/cjmok/aps-hinge2/results/final/baseline_h2pc_20260725/final_acm_scf_basic_seed0

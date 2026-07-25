@@ -1,0 +1,8 @@
+pair	group	n	final_loss	final_mean_iou	best_mean_iou	best_loss	final_patches	final_overlap	srd_total_adds	total_seconds
+acm_scf	basic	1	0.197362	0.844892	0.851349	0.195783	44	2.67e-06	-	3354.63
+cat_face_bass	basic	1	0.165299	0.854315	0.854315	0.161622	10	0.00034146	-	1467.17
+dance_argument	basic	1	0.108392	0.876829	0.878449	0.106435	29	4.96e-06	-	4471.66
+robot_man	basic	1	0.095011	0.872089	0.87646	0.090716	11	8.429e-05	-	978.117
+sun_moon	basic	1	0.169539	0.804645	0.80668	0.167649	18	1.313e-05	-	1421.59
+teapot_droplets	basic	1	0.149139	0.780572	0.79237	0.142339	35	3.594e-05	-	3756.2
+water_fire	basic	1	0.122806	0.806425	0.808142	0.118671	9	7.12e-06	-	775.104

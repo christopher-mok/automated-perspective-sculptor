@@ -1,0 +1,12 @@
+job_id	job_name	pair	arm	overlap_mode	seed	output_dir
+4281858	final_sun_moon_basic_seed0	sun_moon	basic	planar	0	/oscar/home/cjmok/aps-hinge2/results/final/baseline_20pc_20260725/final_sun_moon_basic_seed0
+4281859	final_horse_circle_basic_seed0	horse_circle	basic	planar	0	/oscar/home/cjmok/aps-hinge2/results/final/baseline_20pc_20260725/final_horse_circle_basic_seed0
+4281860	final_cat_face_bass_basic_seed0	cat_face_bass	basic	planar	0	/oscar/home/cjmok/aps-hinge2/results/final/baseline_20pc_20260725/final_cat_face_bass_basic_seed0
+4281861	final_water_fire_basic_seed0	water_fire	basic	planar	0	/oscar/home/cjmok/aps-hinge2/results/final/baseline_20pc_20260725/final_water_fire_basic_seed0
+4281862	final_acm_scf_basic_seed0	acm_scf	basic	planar	0	/oscar/home/cjmok/aps-hinge2/results/final/baseline_20pc_20260725/final_acm_scf_basic_seed0
+4281863	final_siggraph_sigchi_basic_seed0	siggraph_sigchi	basic	planar	0	/oscar/home/cjmok/aps-hinge2/results/final/baseline_20pc_20260725/final_siggraph_sigchi_basic_seed0
+4281864	final_crane_crab_basic_seed0	crane_crab	basic	planar	0	/oscar/home/cjmok/aps-hinge2/results/final/baseline_20pc_20260725/final_crane_crab_basic_seed0
+4281865	final_teapot_droplets_basic_seed0	teapot_droplets	basic	planar	0	/oscar/home/cjmok/aps-hinge2/results/final/baseline_20pc_20260725/final_teapot_droplets_basic_seed0
+4281866	final_dancer_guitar_basic_seed0	dancer_guitar	basic	planar	0	/oscar/home/cjmok/aps-hinge2/results/final/baseline_20pc_20260725/final_dancer_guitar_basic_seed0
+4281867	final_dance_argument_basic_seed0	dance_argument	basic	planar	0	/oscar/home/cjmok/aps-hinge2/results/final/baseline_20pc_20260725/final_dance_argument_basic_seed0
+4281868	final_robot_man_basic_seed0	robot_man	basic	planar	0	/oscar/home/cjmok/aps-hinge2/results/final/baseline_20pc_20260725/final_robot_man_basic_seed0
