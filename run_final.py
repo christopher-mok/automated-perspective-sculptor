@@ -80,6 +80,8 @@ def _export_views(
     evaluation render costs and is what the in-run snapshots use; the final
     exported views use --render-scale instead.
     """
+    import torch
+
     scale = max(1, int(scale))
     with torch.no_grad():
         render1, render2 = optimizer.renderer.render_both(
