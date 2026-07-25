@@ -57,6 +57,7 @@ IMAGE_PAIRS: dict[str, tuple[str, str]] = {
     "teapot_droplets": ("teapot.png", "droplets.png"),
     "dancer_guitar": ("dancer.png", "guitar.png"),
     "dance_argument": ("dance.png", "argument.png"),
+    "robot_man": ("robot.png", "man.png"),
 }
 
 # Run setting -> extra run_ablation.py flags.

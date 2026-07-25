@@ -96,6 +96,32 @@ CONFIGS: dict[str, dict] = {
         "silhouette": _aw(0.25)[0], "negative_space": _aw(0.25)[1],
         "area_normalized": True, "label": "area-norm sil:neg 0.25",
     },
+    "aw0p073": {
+        # The area-normalized weights that reproduce what the working
+        # non-normalized 2.0 / 2.5 actually does, derived rather than guessed.
+        #
+        # Non-normalized silhouette_loss averages (alpha - mask)^2 over the
+        # whole frame, so in the background it is alpha^2 -- the term already
+        # carries a spill penalty. Splitting it by foreground fraction f:
+        #
+        #     L_sil_nonnorm = f * L_sil_norm + (1 - f) * L_negspace
+        #
+        # so 2.0*L_sil_nn + 2.5*L_ns is identically
+        #     (2.0*f) * L_sil_norm + (2.0*(1-f) + 2.5) * L_ns,
+        # i.e. normalized weights (2f, 4.5 - 2f), which sum to 4.5 for free.
+        #
+        # f measured through the real loss path (10% transparent border,
+        # fit_image_to_resolution into the 192x256 canvas, alpha as mask) is
+        # 0.1263 for water_fire and 0.1797 for sun_moon -- the two pairs that
+        # look best on the non-normalized weights. Their combined f = 0.1530
+        # gives silhouette 0.306, negative_space 4.194, ratio 0.0730.
+        #
+        # Every earlier aw config (0.125, 0.1875, 0.25) sits well above that,
+        # so this is the first normalized run on the negative-space side of the
+        # ratio the working weights imply.
+        "silhouette": 0.306, "negative_space": 4.194,
+        "area_normalized": True, "label": "area-norm sil:neg 0.073 (matches nonorm 2.0/2.5)",
+    },
     "nonorm1p25": {
         # The SceneOptimizer class defaults, which every run before the
         # negative-space batches used implicitly: negative space only 1.25x
@@ -135,6 +161,17 @@ ARM_SETTINGS: dict[str, dict] = {
         # on: shedding still removes spare pieces, but conflicting pieces are
         # rebuilt in place rather than dropped. A/B partner of the "hinge2" arm.
         "conflict_restart": True,
+    },
+    "hinge2_restart_importnet": {
+        "base_arm": "srd", "count_objective": True,
+        # Everything at once: fit-then-shed counting, conflict-gated restart,
+        # and the net deletion-importance proxy biasing which piece gets offered
+        # for deletion. The restart and importance arms were only ever measured
+        # separately on top of plain SRD; this is the first run of both together
+        # under the count objective.
+        "conflict_restart": True,
+        "deletion_importance": True, "deletion_proxy": "net",
+        "deletion_temperature": 1.0,
     },
 }
 ARMS = tuple(ARM_SETTINGS)

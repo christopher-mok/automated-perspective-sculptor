@@ -111,6 +111,10 @@ def _parse_args() -> argparse.Namespace:
         help="Sweep directory under results/final/ (default: <experiment>_<timestamp>).",
     )
     parser.add_argument("--pairs", nargs="*", default=None, help="Override the pair list.")
+    parser.add_argument("--arms", nargs="*", default=None, choices=sorted(MAIN_ARMS),
+                        help="Override the arm list for the main experiment "
+                             "(ignored by --experiment overlap, which varies "
+                             "overlap mode at a fixed srd arm).")
     parser.add_argument("--trials", type=int, default=3, help="Seeds per configuration.")
     parser.add_argument("--steps", type=int, default=2000)
     parser.add_argument("--eval-interval", type=int, default=25)
@@ -121,6 +125,27 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-sum", type=float, default=WEIGHT_SUM)
     parser.add_argument("--max-hours", type=float, default=10.0)
     parser.add_argument("--device", default="cuda")
+
+    frames = parser.add_argument_group("frame export")
+    frames.add_argument("--render-every", type=int, default=0,
+                        help="Export both camera views every N steps into "
+                             "renders/, giving a frame series for a video. "
+                             "0 (default) keeps the historical behaviour of "
+                             "exporting only the final views.")
+    frames.add_argument("--render-every-scale", type=int, default=1,
+                        help="Resolution multiplier for the --render-every "
+                             "snapshots, separate from --render-scale because "
+                             "these are written hundreds of times per run.")
+
+    stop = parser.add_argument_group("early stopping")
+    stop.add_argument("--early-stop", action="store_true",
+                      help="Stop once mean IoU and loss have both plateaued, "
+                           "never before --min-steps. Off by default so "
+                           "existing batches are unchanged.")
+    stop.add_argument("--min-steps", type=int, default=1000,
+                      help="Never early-stop before this step.")
+    stop.add_argument("--patience-steps", type=int, default=300,
+                      help="Steps without gain before the plateau stop fires.")
 
     cluster = parser.add_argument_group("cluster resources")
     cluster.add_argument("--partition", default="3090-gcondo")
@@ -149,7 +174,7 @@ def _configurations(args: argparse.Namespace) -> list[dict]:
         ]
     return [
         {"arm": arm, "overlap_mode": "planar", "tag": arm}
-        for arm in MAIN_ARMS
+        for arm in (args.arms or MAIN_ARMS)
     ]
 
 
@@ -183,6 +208,17 @@ def _build_jobs(args: argparse.Namespace, sweep_dir: Path) -> list[dict]:
                     "--device", args.device,
                     "--output-dir", str(output_dir),
                 ]
+                if args.render_every:
+                    command.extend([
+                        "--render-every", str(args.render_every),
+                        "--render-every-scale", str(args.render_every_scale),
+                    ])
+                if args.early_stop:
+                    command.extend([
+                        "--early-stop",
+                        "--min-steps", str(args.min_steps),
+                        "--patience-steps", str(args.patience_steps),
+                    ])
                 # Repair is the planar test's hard constraint; the sphere arm
                 # of the overlap A/B has no exact test to repair against, so it
                 # runs soft-penalty-only exactly as the old method did.
