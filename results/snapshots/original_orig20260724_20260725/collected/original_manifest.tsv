@@ -1,0 +1,8 @@
+job_id	job_name	pair	silhouette_weight	negative_space_weight	output_dir
+4280431	orig_sun_moon	sun_moon	2	2.5	/oscar/home/cjmok/aps-original/results/original/orig_20260724/orig_sun_moon
+4280432	orig_water_fire	water_fire	2	2.5	/oscar/home/cjmok/aps-original/results/original/orig_20260724/orig_water_fire
+4280433	orig_cat_face_bass	cat_face_bass	2	2.5	/oscar/home/cjmok/aps-original/results/original/orig_20260724/orig_cat_face_bass
+4280434	orig_dance_argument	dance_argument	2	2.5	/oscar/home/cjmok/aps-original/results/original/orig_20260724/orig_dance_argument
+4280435	orig_horse_circle	horse_circle	2	2.5	/oscar/home/cjmok/aps-original/results/original/orig_20260724/orig_horse_circle
+4280436	orig_acm_scf	acm_scf	2	2.5	/oscar/home/cjmok/aps-original/results/original/orig_20260724/orig_acm_scf
+4280437	orig_teapot_droplets	teapot_droplets	2	2.5	/oscar/home/cjmok/aps-original/results/original/orig_20260724/orig_teapot_droplets
