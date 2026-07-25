@@ -352,6 +352,10 @@ class SceneOptimizer:
         n_per_segment: int = 20,
         silhouette_weight: float = 2.0,
         negative_space_weight: float = 2.5,  # used to be 4.0
+        # Divide the silhouette term by foreground area, as negative space is
+        # already divided by background area, so the two are on one scale and
+        # their ratio means the same thing for every target shape.
+        area_normalized_view_loss: bool = False,
         #overlap_weight: float = 0.05,
         overlap_weight: float = 0.7,
         overlap_margin: float = 0.005,
@@ -381,6 +385,7 @@ class SceneOptimizer:
         self.sds_pipe = sds_pipe
         self.silhouette_weight = silhouette_weight
         self.negative_space_weight = negative_space_weight
+        self.area_normalized_view_loss = bool(area_normalized_view_loss)
         self.overlap_weight = overlap_weight
         self.overlap_margin = overlap_margin
         if overlap_mode not in OVERLAP_MODES:
@@ -649,7 +654,9 @@ class SceneOptimizer:
             torch.zeros((), device=render1.device)
             if self.target1_is_mask else masked_rgb_loss(render1, self.target1, self.target1_mask)
         )
-        loss1_silhouette = silhouette_loss(render1, self.target1_mask)
+        loss1_silhouette = silhouette_loss(
+            render1, self.target1_mask, self.area_normalized_view_loss
+        )
         loss1_negative_space = negative_space_loss(render1, self.target1_mask)
         loss1 = (
             loss1_rgb
@@ -672,7 +679,9 @@ class SceneOptimizer:
                 torch.zeros((), device=render2.device)
                 if self.target2_is_mask else masked_rgb_loss(render2, self.target2, self.target2_mask)
             )
-            loss2_silhouette = silhouette_loss(render2, self.target2_mask)
+            loss2_silhouette = silhouette_loss(
+                render2, self.target2_mask, self.area_normalized_view_loss
+            )
             loss2_negative_space = negative_space_loss(render2, self.target2_mask)
             loss2 = (
                 loss2_rgb

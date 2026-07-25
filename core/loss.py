@@ -87,8 +87,23 @@ def mse_loss(
 def silhouette_loss(
     rendered: torch.Tensor,
     target_mask: torch.Tensor,
+    area_normalized: bool = False,
 ) -> torch.Tensor:
-    """Mean-squared error between rendered alpha and a target foreground mask."""
+    """Mean-squared error between rendered alpha and a target foreground mask.
+
+    With ``area_normalized=False`` the error is averaged over the whole image,
+    so a target that fills a tenth of the frame produces a tenth of the loss a
+    target that fills the frame would for the same relative miss. That makes
+    the term's magnitude a property of the silhouette's size rather than of how
+    well it is matched, and it is not comparable across differently shaped
+    targets.
+
+    With ``area_normalized=True`` the error is restricted to the foreground and
+    divided by the foreground area, mirroring ``negative_space_loss``'s
+    normalization by background area. The two terms then measure the same
+    thing on the same scale -- mean squared alpha error per unit of their own
+    region -- so their relative weight means the same thing for every pair.
+    """
     if rendered.shape[-1] >= 4:
         alpha = rendered[..., 3:4]
     else:
@@ -96,14 +111,21 @@ def silhouette_loss(
     mask = _match_size(alpha, target_mask.to(alpha.device))
     if mask.dim() == 2:
         mask = mask.unsqueeze(-1)
-    return ((alpha - mask.clamp(0.0, 1.0)) ** 2).mean()
+    mask = mask.clamp(0.0, 1.0)
+    if not area_normalized:
+        return ((alpha - mask) ** 2).mean()
+    return ((alpha - mask).square() * mask).sum() / (mask.sum() + 1e-8)
 
 
 def negative_space_loss(
     rendered: torch.Tensor,
     target_mask: torch.Tensor,
 ) -> torch.Tensor:
-    """Penalize rendered coverage in target background/transparent regions."""
+    """Penalize rendered coverage in target background/transparent regions.
+
+    Already normalized by background area, so it is the area-normalized
+    counterpart of ``silhouette_loss(..., area_normalized=True)``.
+    """
     if rendered.shape[-1] >= 4:
         alpha = rendered[..., 3:4]
     else:
