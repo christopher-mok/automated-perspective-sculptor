@@ -1,0 +1,8 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+4278239	neg_sun_moon_srd_restart_aw0p125	sun_moon	srd_restart	aw0p125	0.5	4	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_aw0p125_20260724/neg_sun_moon_srd_restart_aw0p125
+4278240	neg_water_fire_srd_restart_aw0p125	water_fire	srd_restart	aw0p125	0.5	4	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_aw0p125_20260724/neg_water_fire_srd_restart_aw0p125
+4278241	neg_cat_face_bass_srd_restart_aw0p125	cat_face_bass	srd_restart	aw0p125	0.5	4	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_aw0p125_20260724/neg_cat_face_bass_srd_restart_aw0p125
+4278242	neg_dance_argument_srd_restart_aw0p125	dance_argument	srd_restart	aw0p125	0.5	4	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_aw0p125_20260724/neg_dance_argument_srd_restart_aw0p125
+4278243	neg_horse_circle_srd_restart_aw0p125	horse_circle	srd_restart	aw0p125	0.5	4	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_aw0p125_20260724/neg_horse_circle_srd_restart_aw0p125
+4278244	neg_acm_scf_srd_restart_aw0p125	acm_scf	srd_restart	aw0p125	0.5	4	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_aw0p125_20260724/neg_acm_scf_srd_restart_aw0p125
+4278245	neg_teapot_droplets_srd_restart_aw0p125	teapot_droplets	srd_restart	aw0p125	0.5	4	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_restart_aw0p125_20260724/neg_teapot_droplets_srd_restart_aw0p125

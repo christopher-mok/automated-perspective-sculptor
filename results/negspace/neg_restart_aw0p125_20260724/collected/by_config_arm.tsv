@@ -1,0 +1,2 @@
+config	arm	n	final_mean_iou	best_mean_iou	final_mean_tversky	best_mean_tversky	final_patches	max_patches	final_mean_spill	final_mean_coverage	srd_total_deletes	final_step	total_seconds
+aw0p125	srd_restart	7	0.810514	0.814551	0.923025	0.929463	16.4286	20	0.061602	0.858041	3.57143	2028.57	12794.7

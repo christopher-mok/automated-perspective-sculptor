@@ -14,26 +14,27 @@ Everything here is at `--lambda-count 0`.
 
 ## Weight comparison
 
-SRD family, `--lambda-count 0`, matched on the 6 pairs every sweep finished:
-acm_scf, cat_face_bass, horse_circle, sun_moon, teapot_droplets, water_fire.
-"ratio" is the normalized-equivalent silhouette:negative-space ratio at
-f_fg = 0.153, putting normalized and non-normalized configs on one axis.
+SRD family, `--lambda-count 0`, matched on **all 7 pairs** every sweep finished:
+acm_scf, cat_face_bass, dance_argument, horse_circle, sun_moon,
+teapot_droplets, water_fire. "ratio" is the normalized-equivalent
+silhouette:negative-space ratio at f_fg = 0.153, putting normalized and
+non-normalized configs on one axis.
 
 | config | ratio | arm | IoU | pieces | spill | coverage | precision |
 |---|---|---|---|---|---|---|---|
-| **aw0p1875** | 0.1875 | srd_restart | **0.9127** | 31.8 | 0.0655 | 0.967 | 0.942 |
-| aw0p25 | 0.2500 | srd_restart | 0.9067 | 27.5 | 0.0788 | **0.971** | 0.931 |
-| nonorm1p25 *(ORIGINAL)* | 0.0730 | srd_restart | 0.9042 | 28.3 | 0.0594 | 0.953 | 0.946 |
-| aw0p073 | 0.0730 | srd *(no restart)* | 0.9022 | 30.8 | 0.0382 | 0.936 | 0.963 |
-| nonorm4 | 0.0316 | srd_restart | 0.8900 | 29.5 | **0.0221** | 0.909 | **0.977** |
+| **aw0p1875** | 0.1875 | srd_restart | **0.9088** | 32.1 | 0.0673 | 0.965 | 0.940 |
+| aw0p25 | 0.2500 | srd_restart | 0.9075 | 28.7 | 0.0771 | **0.971** | 0.932 |
+| aw0p073 | 0.0730 | srd *(no restart)* | 0.9034 | 32.3 | 0.0386 | 0.937 | 0.962 |
+| nonorm1p25 *(ORIGINAL)* | 0.0730 | srd_restart | 0.8942 | 28.7 | 0.0550 | 0.939 | 0.949 |
+| nonorm4 | 0.0316 | srd_restart | 0.8816 | 29.6 | **0.0220** | 0.900 | **0.977** |
 
-**Spill orders perfectly by effective ratio** — 0.0221, 0.0382, 0.0594, 0.0655,
-0.0788 against ratios 0.032, 0.073, 0.073, 0.188, 0.250. Not one inversion, and
-`nonorm4` wins spill on all six pairs individually. Precision and coverage order
-the same way, in opposite directions. The pixel-count model predicts this axis
-exactly.
+**Spill orders perfectly by effective ratio** — 0.0220, 0.0386, 0.0550, 0.0673,
+0.0771 against ratios 0.032, 0.073, 0.073, 0.188, 0.250. Not one inversion, and
+`nonorm4` wins spill on all seven pairs individually. Precision and coverage
+order the same way, in opposite directions. The pixel-count model predicts this
+axis exactly.
 
-**IoU spans only 2.3 points across the entire weight range** (0.890–0.913),
+**IoU spans only 2.7 points across the entire weight range** (0.882–0.909),
 against lambda's 5–10. Weights buy you the spill/coverage tradeoff; they are not
 where the IoU comes from.
 
@@ -43,15 +44,16 @@ where the IoU comes from.
 |---|---|---|---|---|---|
 | acm_scf | 0.8323 | 0.8376 | 0.8029 | 0.8662 | **0.8663** |
 | cat_face_bass | 0.9452 | 0.9477 | 0.9501 | **0.9504** | 0.9392 |
+| dance_argument | 0.8314 | 0.9106 | 0.8348 | 0.8858 | **0.9128** |
 | horse_circle | **0.9321** | 0.8993 | 0.9067 | 0.8948 | 0.8943 |
 | sun_moon | 0.9225 | 0.9320 | 0.9511 | **0.9685** | 0.9496 |
 | teapot_droplets | 0.7718 | **0.8495** | 0.8456 | 0.8325 | 0.8177 |
 | water_fire | 0.9360 | 0.9472 | 0.9685 | 0.9636 | **0.9728** |
-| **mean** | 0.8900 | 0.9022 | 0.9042 | **0.9127** | 0.9067 |
+| **mean** | 0.8816 | 0.9034 | 0.8942 | **0.9088** | 0.9075 |
 
 No config wins more than two pairs. horse_circle prefers the most
-negative-space-weighted config and teapot the middle; acm and water_fire prefer
-the most silhouette-weighted. The per-pair optimum genuinely varies.
+negative-space-weighted config and teapot the middle; acm, dance and water_fire
+prefer the most silhouette-weighted. The per-pair optimum genuinely varies.
 
 ### Per-pair final piece count
 
@@ -59,13 +61,14 @@ the most silhouette-weighted. The per-pair optimum genuinely varies.
 |---|---|---|---|---|---|
 | acm_scf | 34 | 37 | 31 | 46 | 30 |
 | cat_face_bass | 29 | 31 | 25 | 30 | 25 |
+| dance_argument | 30 | 41 | 31 | 34 | 36 |
 | horse_circle | 32 | 35 | 27 | 32 | 29 |
 | sun_moon | 27 | 24 | 30 | 26 | 26 |
 | teapot_droplets | 33 | 32 | 33 | 33 | 30 |
 | water_fire | 22 | 26 | 24 | 24 | 25 |
-| **mean** | 29.5 | 30.8 | 28.3 | 31.8 | 27.5 |
+| **mean** | 29.6 | 32.3 | 28.7 | 32.1 | 28.7 |
 
-Piece count shows **no relationship to weights** — the 27.5–31.8 spread has no
+Piece count shows **no relationship to weights** — the 28.7–32.3 spread has no
 ordering with ratio. All start at 20, so every config grows by roughly half
 again. Piece count is set by lambda and the SRD acceptance test, not by weights.
 
@@ -75,21 +78,30 @@ again. Piece count is set by lambda and the SRD acceptance test, not by weights.
 |---|---|---|---|---|---|
 | acm_scf | **0.0488** | 0.0646 | 0.1269 | 0.1292 | 0.1207 |
 | cat_face_bass | **0.0103** | 0.0144 | 0.0229 | 0.0288 | 0.0448 |
+| dance_argument | **0.0214** | 0.0411 | 0.0290 | 0.0781 | 0.0670 |
 | horse_circle | **0.0085** | 0.0196 | 0.0656 | 0.0407 | 0.0699 |
 | sun_moon | **0.0087** | 0.0268 | 0.0273 | 0.0152 | 0.0357 |
 | teapot_droplets | **0.0501** | 0.0791 | 0.1036 | 0.1569 | 0.1807 |
 | water_fire | **0.0060** | 0.0245 | 0.0099 | 0.0220 | 0.0210 |
-| **mean** | 0.0221 | 0.0382 | 0.0594 | 0.0655 | 0.0788 |
+| **mean** | 0.0220 | 0.0386 | 0.0550 | 0.0673 | 0.0771 |
 
-### On aw0p073
+### On aw0p073 — the ranking reversed at 7 pairs
 
-Still 4th on IoU, but with six pairs it is 0.9022 against ORIGINAL's 0.9042 — a
-**0.2 point gap**, down from 1.4 on the three-pair set. And it does that at the
-second-lowest spill (0.0382 vs 0.0594) and second-highest precision. Given it is
-still the only arm here without conflict restart, the derived weights look
-essentially equivalent to the original weights they were derived to match, with
-better edges. `neg_awrec_restart_20260725` (same config, restart added) is
-running and will settle this.
+`neg_awrec_srd` finished its eighth job, which added dance_argument to the
+matched set and **moved aw0p073 from 4th to 3rd, past the original weights it
+was derived to reproduce**: 0.9034 against nonorm1p25's 0.8942, a 0.9 point
+lead where it previously trailed by 0.2.
+
+dance_argument is the whole difference — aw0p073 scores 0.9106 there against
+nonorm1p25's 0.8348, a 7.6 point gap, the largest single-pair gap between any
+two configs in the table. It is worth treating with caution for exactly that
+reason: one pair moved the ranking, on a single seed.
+
+Even so, aw0p073 now beats the original weights on IoU *and* on spill (0.0386 vs
+0.0550) *and* on precision (0.962 vs 0.949), while still being **the only arm
+here without conflict restart**. The derived weights look at least equivalent to
+the weights they were derived to match, plausibly better.
+`neg_awrec_restart_20260725` (same config with restart) will settle it.
 
 ## Swept-volume ablation
 
@@ -156,11 +168,18 @@ The ORIGINAL-branch batch lives in the `aps-original` checkout on branch
 
 Per-run `history.csv` and the ~2400 render frames per run stay on Oscar.
 
+## Also included, outside the lambda-0 family
+
+`neg_restart_aw0p125_20260724` (aw0p125, srd_restart) and
+`neg_restart_aw0p25_20260724` (aw0p25, srd_restart) both ran at the default
+`--lambda-count 0.05` and so are not comparable to the table above — they sit at
+~16–17 pieces rather than ~29. `aw0p125` has no lambda-0 counterpart at all, so
+its numbers exist only in that sweep.
+
 ## Still running
 
-- `neg_awrec_srd_20260725` — 7/8 (dance_argument outstanding)
-- `neg_awrec_restart_20260725` — 0/7, the restart partner for aw0p073
-- `neg_h2r_aw0p1875_20260725` — 0/7, hinge2+restart at aw0p1875 without
+- `neg_awrec_restart_20260725` — the restart partner for aw0p073
+- `neg_h2r_aw0p1875_20260725` — hinge2+restart at aw0p1875 without
   importance deletion
 - `neg_h2r_horsecircle_weights_20260725` — 0/3, hinge2+restart on horse_circle
   across nonorm1p25 / aw0p073 / aw0p1875
