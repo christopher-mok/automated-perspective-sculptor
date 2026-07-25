@@ -67,6 +67,33 @@ def _save_render(render, path: Path) -> None:
     Image.fromarray(array, mode="RGBA").save(path)
 
 
+def _export_views(
+    optimizer,
+    cameras,
+    scale: int,
+    view1_path: Path,
+    view2_path: Path,
+) -> None:
+    """Render both camera views and write them as PNGs.
+
+    ``scale`` multiplies the optimization resolution, so 1 costs about what one
+    evaluation render costs and is what the in-run snapshots use; the final
+    exported views use --render-scale instead.
+    """
+    import torch
+
+    scale = max(1, int(scale))
+    with torch.no_grad():
+        render1, render2 = optimizer.renderer.render_both(
+            optimizer.patches,
+            cameras[0],
+            cameras[1],
+            (optimizer.resolution[0] * scale, optimizer.resolution[1] * scale),
+        )
+    _save_render(render1.detach().cpu(), view1_path)
+    _save_render(render2.detach().cpu(), view2_path)
+
+
 def _render_stem(args: argparse.Namespace) -> str:
     """Self-describing basename for exported views, e.g. horse-circle_srd_lam0p01_seed0.
 
@@ -124,6 +151,18 @@ def _parse_args() -> argparse.Namespace:
     run.add_argument("--hanging-plane-size", type=float, default=5.0)
     run.add_argument("--srd-interval", type=int, default=50)
     run.add_argument("--srd-candidates", type=int, default=32)
+    run.add_argument(
+        "--srd-min-patch-area",
+        type=float,
+        default=0.01,
+        help="Area below which SRD's tiny-area pass deletes a piece outright, "
+             "before any scoring and without the creation-step cooldown that "
+             "guards the other mandatory deletions. Note that SRD spawns adds "
+             "and conflict-restart respawns at area 0.009291 (a radius-0.05 "
+             "pentagon), so at the historical default of 0.01 every new piece "
+             "is born below the bar and is culled at the next rewrite step "
+             "unless it grows ~8%% in area within one --srd-interval.",
+    )
 
     ops = parser.add_argument_group(
         "SRD operation mix",
@@ -137,6 +176,54 @@ def _parse_args() -> argparse.Namespace:
     ops.add_argument("--add-weight", type=float, default=0.35)
     ops.add_argument("--delete-weight", type=float, default=0.15)
     ops.add_argument("--split-weight", type=float, default=0.50)
+    ops.add_argument(
+        "--deletion-importance",
+        action="store_true",
+        help="Draw deletion candidates by a damage proxy (piece area x the "
+             "fraction of its own silhouette that spills into negative space), "
+             "softmax-weighted at --deletion-temperature, instead of uniformly. "
+             "Biases deletion toward large pieces that mostly paint where "
+             "nothing should be, while keeping stochastic diversity -- it is a "
+             "soft weight, never an argmax. No effect on the 'basic' arm.",
+    )
+    ops.add_argument(
+        "--deletion-temperature",
+        type=float,
+        default=1.0,
+        help="Softmax temperature for --deletion-importance, in units of the "
+             "proxy's own standard deviation (scale-free). Lower is greedier "
+             "(toward argmin-damage pruning); higher flattens toward uniform.",
+    )
+    ops.add_argument(
+        "--deletion-proxy",
+        choices=("spill", "net"),
+        default="spill",
+        help="Damage proxy for --deletion-importance. 'spill' = area x "
+             "spill_fraction (a piece's wasted paint). 'net' = area x "
+             "(spill_fraction - coverage_fraction), so a piece is cheap to "
+             "delete only when it spills more than it covers.",
+    )
+    ops.add_argument(
+        "--conflict-restart",
+        action="store_true",
+        help="Gate deletion on per-view loss conflict. A candidate whose "
+             "removal helps one view but hurts the other (opposite-signed "
+             "per-view loss deltas: spills in one view, covers in the other) is "
+             "turned into an atomic restart -- delete it and respawn a fresh "
+             "piece into the residual it vacated, seeded from the swept volume "
+             "over that hole -- instead of a plain delete the lookahead would "
+             "reject. Pieces bad in both views stay plain deletes. Also lets "
+             "full-size conflicting pieces be reconsidered, which the size-gated "
+             "deletion eligibility otherwise never would. Needs swept-volume "
+             "adds; no effect on the 'basic' arm.",
+    )
+    ops.add_argument(
+        "--conflict-eps",
+        type=float,
+        default=1e-3,
+        help="Per-view loss delta (in loss units) a view must clear to count "
+             "as helped or hurt for --conflict-restart, filtering render noise.",
+    )
     run.add_argument(
         "--lambda-count",
         type=float,
@@ -227,6 +314,69 @@ def _parse_args() -> argparse.Namespace:
              "softplus of that sharpness -- smooth, but it leaks a little "
              "penalty above the threshold too.",
     )
+    count.add_argument(
+        "--count-margin-reward",
+        type=float,
+        default=0.0,
+        help="Tilt the flat half of the hinge down by this much per unit of "
+             "IoU above target, so margin is worth something and a run does "
+             "not drift onto the threshold where the post-deletion dip flips "
+             "it infeasible. A tiebreak only: keep it far below the pieces "
+             "one unit of IoU buys (~200/unit near convergence), e.g. 5.",
+    )
+    count.add_argument(
+        "--count-hard-floor",
+        action="store_true",
+        help="Once mean IoU has cleared --count-target-iou, reject outright "
+             "any rewrite that lands back below it instead of pricing the "
+             "shortfall at --count-lambda. This is what makes the target a "
+             "constraint rather than a very expensive purchase. Needs a "
+             "--delete-eval-steps large enough that deletions are scored "
+             "after their recovery, not at the bottom of the dip.",
+    )
+    count.add_argument(
+        "--count-start-mode",
+        choices=("immediate", "on_target"),
+        default="immediate",
+        help="'immediate' scores rewrites on J from step 1 (the historical "
+             "behaviour). 'on_target' runs a fit phase first -- rewrites "
+             "scored on image loss, no count pressure -- and only starts "
+             "shedding once IoU has held above target + margin, so pieces are "
+             "judged on a converged fit rather than on unconverged evidence.",
+    )
+    count.add_argument(
+        "--count-start-margin",
+        type=float,
+        default=0.02,
+        help="Headroom above --count-target-iou required to enter the shed "
+             "phase. Also the buffer that absorbs each deletion's transient "
+             "dip, so it wants to be at least as large as that dip (~0.02).",
+    )
+    count.add_argument(
+        "--count-start-patience",
+        type=int,
+        default=2,
+        help="Consecutive evaluations above target + margin needed to enter "
+             "the shed phase, so one lucky evaluation cannot commit the run.",
+    )
+    count.add_argument(
+        "--delete-eval-steps",
+        type=int,
+        default=1,
+        help="Local refit steps a deletion gets before it is scored. The "
+             "historical 1 measures the bottom of the ~0.02 IoU dip a "
+             "deletion causes; recovery takes ~100 steps. Anything judging "
+             "deletions on IoU wants this well above 1.",
+    )
+    count.add_argument(
+        "--shed-patience-evals",
+        type=int,
+        default=0,
+        help="During the shed phase, stop after this many consecutive "
+             "evaluations with no accepted deletion (and IoU at target). 0 "
+             "keeps the ordinary IoU/loss plateau rule, which trips almost "
+             "immediately once shedding starts, since IoU plateaus by design.",
+    )
 
     prune = parser.add_argument_group(
         "pruning path",
@@ -281,6 +431,26 @@ def _parse_args() -> argparse.Namespace:
         help="Resolution multiplier for the exported final views "
              "(relative to the 192x256 optimization resolution).",
     )
+    run.add_argument(
+        "--render-every",
+        type=int,
+        default=0,
+        help="Also export both camera views every N optimization steps into "
+             "renders/step<NNNNN>_view{1,2}.png, giving a frame-by-frame "
+             "record of the geometry alongside history.csv's numbers. 0 is "
+             "off, which is the historical behaviour: only the final views. "
+             "Step 1 is always captured so the series starts from the "
+             "initialization.",
+    )
+    run.add_argument(
+        "--render-every-scale",
+        type=int,
+        default=1,
+        help="Resolution multiplier for the --render-every snapshots, kept "
+             "separate from --render-scale because these are written hundreds "
+             "of times per run: at 1 a snapshot pair costs about one "
+             "evaluation render and a few tens of KB.",
+    )
     run.add_argument("--output-dir", required=True, help="Report/CSV directory.")
 
     stop = parser.add_argument_group("early stopping")
@@ -330,6 +500,15 @@ def _parse_args() -> argparse.Namespace:
              "pair is a silhouette:negative-space ratio of 4 at a fixed sum "
              "of 4.5.",
     )
+    weights.add_argument(
+        "--area-normalized-view-loss",
+        action="store_true",
+        help="Divide the silhouette term by target foreground area, as the "
+             "negative-space term is already divided by background area. Both "
+             "terms then read as mean squared alpha error per unit of their "
+             "own region, so one weight ratio means the same thing for "
+             "targets of different shape and size.",
+    )
 
     overlap = parser.add_argument_group("overlap test")
     overlap.add_argument(
@@ -353,6 +532,19 @@ def _parse_args() -> argparse.Namespace:
         help="Soft penalty only; no hard repair pass.",
     )
     overlap.add_argument("--overlap-repair-interval", type=int, default=5)
+
+    orient = parser.add_argument_group("orientation constraint")
+    orient.add_argument(
+        "--unconstrained-theta",
+        action="store_true",
+        help="Remove the camera edge-on rotation constraint. By default every "
+             "patch's theta is projected to stay at least 15 degrees away from "
+             "each camera yaw, both at initialization and after every step, so "
+             "no piece turns edge-on to a view and vanishes into a thin line. "
+             "With this flag the margin is set to 0, so theta is free and "
+             "pieces may orient edge-on to a camera. Off by default -- the "
+             "constraint is on and behaviour is unchanged unless this is set.",
+    )
     return parser.parse_args()
 
 
@@ -363,6 +555,7 @@ def _srd_config(args: argparse.Namespace) -> dict[str, object] | None:
         "enabled": True,
         "interval": args.srd_interval,
         "candidate_count": args.srd_candidates,
+        "min_patch_area": args.srd_min_patch_area,
         "add_weight": args.add_weight,
         "delete_weight": args.delete_weight,
         "split_weight": args.split_weight,
@@ -371,6 +564,12 @@ def _srd_config(args: argparse.Namespace) -> dict[str, object] | None:
         "count_lambda": args.count_lambda,
         "count_power": args.count_power,
         "count_softplus_beta": args.count_softplus_beta,
+        "count_margin_reward": args.count_margin_reward,
+        "count_hard_floor": args.count_hard_floor,
+        "count_start_mode": args.count_start_mode,
+        "count_start_margin": args.count_start_margin,
+        "count_start_patience": args.count_start_patience,
+        "delete_eval_steps": args.delete_eval_steps,
         "lambda_count": args.lambda_count,
         "lambda_mode": args.lambda_mode,
         "lambda_target_iou": args.target_iou,
@@ -381,6 +580,11 @@ def _srd_config(args: argparse.Namespace) -> dict[str, object] | None:
         "swept_volume_spawn_fraction": args.swept_spawn_fraction,
         "loss_only_deletion": False,
         "disable_splitting": False,
+        "deletion_importance": args.deletion_importance,
+        "deletion_temperature": args.deletion_temperature,
+        "deletion_proxy": args.deletion_proxy,
+        "conflict_restart": args.conflict_restart,
+        "conflict_eps": args.conflict_eps,
     }
 
 
@@ -404,6 +608,10 @@ HISTORY_COLUMNS = (
     # count above is their running sum (adds + splits - deletes, plus the
     # starting pieces); these say which operation produced it.
     "total_adds", "total_splits", "total_deletes",
+    # Fit-then-shed phase state. count_active is 0 through the fit phase and 1
+    # once shedding starts; target_reached latches at the first evaluation to
+    # clear count_target_iou, which is what arms the hard floor.
+    "count_active", "target_reached",
 )
 
 PRUNING_PATH_COLUMNS = (
@@ -414,6 +622,7 @@ PRUNING_PATH_COLUMNS = (
 _FLOAT_COLUMNS = {
     "step", "patches", "overlap_repaired_pairs",
     "total_adds", "total_splits", "total_deletes",
+    "count_active", "target_reached",
 }
 
 
@@ -455,6 +664,40 @@ def _first_crossing(history: list[dict], threshold: float) -> dict | None:
         if entry["mean_iou"] >= threshold:
             return entry
     return None
+
+
+def _shed_entry(history: list[dict]) -> dict | None:
+    """First evaluation recorded under the shed phase, if the run entered it."""
+    for entry in history:
+        if entry.get("count_active"):
+            return entry
+    return None
+
+
+def _shed_entry_step(history: list[dict]) -> int:
+    entry = _shed_entry(history)
+    return int(entry["step"]) if entry else -1
+
+
+def _shed_entry_field(history: list[dict], field: str) -> str:
+    entry = _shed_entry(history)
+    if entry is None:
+        return "-1"
+    value = entry[field]
+    return f"{value:.6f}" if isinstance(value, float) else str(value)
+
+
+def _min_iou_after_target(history: list[dict]) -> str:
+    """Worst IoU seen after the target was first cleared.
+
+    With the hard floor on this is the guarantee's audit trail: it should sit
+    at or above count_target_iou, and any dip below says a rewrite got past the
+    floor -- usually because a deletion was scored before it had recovered.
+    """
+    tail = [e for e in history if e.get("target_reached")]
+    if not tail:
+        return "-1"
+    return f"{min(e['mean_iou'] for e in tail):.6f}"
 
 
 def _milestone_lines(history: list[dict]) -> list[str]:
@@ -512,6 +755,8 @@ def _write_report(
         f"target2={args.target2}",
         f"steps={args.steps}",
         f"eval_interval={args.eval_interval}",
+        f"render_every={args.render_every}",
+        f"render_every_scale={args.render_every_scale}",
         f"n_patches={args.n_patches}",
         f"swept_volume_resolution={args.swept_resolution}",
         f"swept_volume_spawn_fraction={args.swept_spawn_fraction:.6g}",
@@ -528,12 +773,21 @@ def _write_report(
         f"count_lambda={args.count_lambda:.6g}",
         f"count_power={args.count_power:.6g}",
         f"count_softplus_beta={args.count_softplus_beta:.6g}",
+        f"count_margin_reward={args.count_margin_reward:.6g}",
+        f"count_hard_floor={args.count_hard_floor}",
+        f"count_start_mode={args.count_start_mode}",
+        f"count_start_margin={args.count_start_margin:.6g}",
+        f"count_start_patience={args.count_start_patience}",
+        f"delete_eval_steps={args.delete_eval_steps}",
+        f"shed_patience_evals={args.shed_patience_evals}",
         f"silhouette_weight={args.silhouette_weight:.6g}",
         f"negative_space_weight={args.negative_space_weight:.6g}",
         f"weight_ratio={ratio:.6g}",
+        f"area_normalized_view_loss={args.area_normalized_view_loss}",
         f"overlap_mode={args.overlap_mode}",
         f"overlap_repair={args.overlap_repair}",
         f"overlap_repair_interval={args.overlap_repair_interval}",
+        f"unconstrained_theta={args.unconstrained_theta}",
         f"learning_rate={args.lr:.6g}",
         f"early_stop={args.early_stop}",
         f"min_steps={args.min_steps}",
@@ -596,6 +850,15 @@ def _write_report(
             f"  step_at_threshold={crossing['step'] if crossing else -1}",
             f"  patches_shed_after_threshold="
             f"{crossing['patches'] - final['patches'] if crossing else -1}",
+            # Fit-then-shed diagnostics. shed_entered_step=-1 means the run
+            # never cleared target + margin, so it stayed in the fit phase
+            # throughout and the piece count is whatever the fit produced --
+            # the infeasibility fallback, not a failure to shed.
+            f"  shed_entered_step={_shed_entry_step(history)}",
+            f"  shed_entry_patches={_shed_entry_field(history, 'patches')}",
+            f"  shed_entry_mean_iou={_shed_entry_field(history, 'mean_iou')}",
+            f"  shed_evals={sum(1 for e in history if e.get('count_active'))}",
+            f"  min_iou_after_target={_min_iou_after_target(history)}",
         ])
 
     if srd_stats is not None:
@@ -607,6 +870,7 @@ def _write_report(
             f"  srd_total_splits={getattr(srd_stats, 'total_splits', 0)}",
             f"  srd_total_growth={getattr(srd_stats, 'total_added', 0)}",
             f"  srd_total_deletes={getattr(srd_stats, 'total_deleted', 0)}",
+            f"  srd_total_restarts={getattr(srd_stats, 'total_restarts', 0)}",
         ])
 
     if pruning_selected:
@@ -642,9 +906,14 @@ def main() -> None:
     import torch
 
     from core.initialization import initialize_patches
-    from core.optimizer import SceneOptimizer
+    from core.optimizer import SceneOptimizer, THETA_CAMERA_MARGIN
     from core.patch import set_fan_fill
     from core.swept_volume import SweptVolume
+
+    # 0 removes the constraint entirely: constrain_theta_to_camera_band and
+    # _sample_allowed_theta both admit every theta when the margin is 0, so the
+    # single value disables the edge-on rule at both init and every step.
+    theta_camera_margin = 0.0 if args.unconstrained_theta else THETA_CAMERA_MARGIN
 
     # Before any patch is constructed, so every mesh built in this process uses
     # the same triangulation.
@@ -678,6 +947,7 @@ def main() -> None:
         device=args.device,
         seed=args.seed,
         swept_volume=swept_volume,
+        theta_camera_margin=theta_camera_margin,
     )
     optimizer = SceneOptimizer(
         patches,
@@ -694,9 +964,11 @@ def main() -> None:
         swept_volume=swept_volume,
         silhouette_weight=args.silhouette_weight,
         negative_space_weight=args.negative_space_weight,
+        area_normalized_view_loss=args.area_normalized_view_loss,
         overlap_mode=args.overlap_mode,
         overlap_repair=args.overlap_repair,
         overlap_repair_interval=args.overlap_repair_interval,
+        theta_camera_margin=theta_camera_margin,
     )
 
     setup_seconds = time.perf_counter() - setup_started
@@ -709,6 +981,15 @@ def main() -> None:
     )
 
     max_seconds = args.max_hours * 3600.0
+
+    # Frame-by-frame view record, written alongside history.csv so a curve can
+    # be read against the geometry that produced it. Cheap at scale 1, but it
+    # is one more render per capture, so it sits inside the timed region and
+    # total_seconds is only comparable across runs at the same cadence.
+    snapshot_dir = output_dir / "renders"
+    if args.render_every > 0:
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+
     optimization_started = time.perf_counter()
 
     history: list[dict] = []
@@ -721,8 +1002,29 @@ def main() -> None:
     best_loss = float("inf")
     last_improvement_step = 0
 
+    # Shed-phase convergence. Once shedding starts the plateau rule above is
+    # the wrong test: IoU flattens by design, so it trips within a few
+    # evaluations and kills the run while deletions are still landing. Count
+    # consecutive evaluations with no accepted deletion instead.
+    shed_stall_evals = 0
+    last_total_deletes = 0
+    shed_entered_step: int | None = None
+
     for step_index in range(1, args.steps + 1):
         step_metrics = optimizer.step(step_index, args.steps)
+
+        if args.render_every > 0 and (
+            step_index % args.render_every == 0
+            or step_index == 1
+            or step_index == args.steps
+        ):
+            _export_views(
+                optimizer,
+                cameras,
+                args.render_every_scale,
+                snapshot_dir / f"step{step_index:05d}_view1.png",
+                snapshot_dir / f"step{step_index:05d}_view2.png",
+            )
 
         is_eval = (
             step_index % args.eval_interval == 0
@@ -753,6 +1055,15 @@ def main() -> None:
                 optimizer.srd.stats.total_deleted if optimizer.srd is not None else 0
             ),
         }
+        # Advance the fit-then-shed schedule on the IoU just measured, so the
+        # phase recorded on this row is the one the next interval runs under.
+        phase = (
+            optimizer.srd.update_count_phase(float(metrics["mean_iou"]), step_index)
+            if optimizer.srd is not None
+            else {"count_active": 0.0, "target_reached": 0.0}
+        )
+        entry["count_active"] = phase["count_active"]
+        entry["target_reached"] = phase["target_reached"]
         for column in HISTORY_COLUMNS:
             if column not in entry:
                 entry[column] = float(metrics.get(column, 0.0))
@@ -786,12 +1097,47 @@ def main() -> None:
                 flush=True,
             )
 
+        # Shedding in progress: the run's job is now to lose pieces, not to
+        # raise IoU, so convergence means "no deletion has landed recently".
+        shedding = bool(entry["count_active"]) and args.shed_patience_evals > 0
+        if shedding:
+            if shed_entered_step is None:
+                shed_entered_step = step_index
+                last_total_deletes = int(entry["total_deletes"])
+            if int(entry["total_deletes"]) > last_total_deletes:
+                last_total_deletes = int(entry["total_deletes"])
+                shed_stall_evals = 0
+            else:
+                shed_stall_evals += 1
+
         stalled_for = step_index - last_improvement_step
-        if (
+        if shedding:
+            # Never stop below target: if the shed phase has dipped the run
+            # under the floor, keep going and let it climb back.
+            if (
+                args.early_stop
+                and step_index >= args.min_steps
+                and shed_stall_evals >= args.shed_patience_evals
+                and entry["mean_iou"] >= args.count_target_iou
+            ):
+                stop_reason = "shed_converged"
+                print(
+                    f"  [stop] shed converged at step {step_index}: no accepted "
+                    f"deletion for {shed_stall_evals} evals at "
+                    f"mean_iou={entry['mean_iou']:.6f}, patches={entry['patches']}",
+                    flush=True,
+                )
+                break
+        elif (
             args.early_stop
             and step_index >= args.min_steps
             and stalled_for >= args.patience_steps
         ):
+            # Fit phase (or a run with no shed phase at all). A fit-then-shed
+            # run that plateaus here never reached target + margin, so the
+            # target is out of reach for this shape and stopping is correct --
+            # that is the infeasibility fallback, and it leaves the run at its
+            # best achievable IoU rather than shedding pieces it needs.
             stop_reason = "converged"
             print(
                 f"  [stop] converged at step {step_index}: no IoU/loss gain "
@@ -853,20 +1199,19 @@ def main() -> None:
     print(f"\n[Final] report written to {output_dir / 'report.txt'}", flush=True)
 
     if not args.no_renders:
-        scale = max(1, args.render_scale)
-        with torch.no_grad():
-            render1, render2 = optimizer.renderer.render_both(
-                optimizer.patches,
-                cameras[0],
-                cameras[1],
-                (optimizer.resolution[0] * scale, optimizer.resolution[1] * scale),
-            )
         stem = _render_stem(args)
         view1_path = output_dir / f"{stem}_view1.png"
         view2_path = output_dir / f"{stem}_view2.png"
-        _save_render(render1.detach().cpu(), view1_path)
-        _save_render(render2.detach().cpu(), view2_path)
+        _export_views(optimizer, cameras, args.render_scale, view1_path, view2_path)
         print(f"[Final] views exported to {view1_path.name}, {view2_path.name}", flush=True)
+
+    if args.render_every > 0:
+        frames = len(list(snapshot_dir.glob("step*_view1.png")))
+        print(
+            f"[Final] {frames} snapshot pair(s) every {args.render_every} step(s) "
+            f"in {snapshot_dir}",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":
