@@ -1,0 +1,33 @@
+ORIGINAL_orig_20260724                  6 done: acm_scf cat_face_bass horse_circle sun_moon teapot_droplets water_fire
+neg_awrec_srd_20260725                  5 done: acm_scf cat_face_bass robot_man sun_moon water_fire
+neg_minarea_aw0p1875_lam0_20260725      6 done: cat_face_bass dance_argument horse_circle sun_moon teapot_droplets water_fire
+neg_minarea_nonorm4_20260724            7 done: acm_scf cat_face_bass dance_argument horse_circle sun_moon teapot_droplets water_fire
+neg_restart_aw0p25_lam0_20260724        7 done: acm_scf cat_face_bass dance_argument horse_circle sun_moon teapot_droplets water_fire
+
+COMMON to all: ['cat_face_bass', 'sun_moon', 'water_fire']  (n=3)
+
+================================================================================================
+MATCHED on the 3 pairs every lambda-count=0 sweep finished
+================================================================================================
+config      arm                         minarea      IoU    spill     cov    prec  pieces
+------------------------------------------------------------------------------------
+aw0p1875    srd_restart                   0.005   0.9608   0.0220   0.982   0.978    26.7
+nonorm1p25  srd_restart[ORIG branch]          -   0.9566   0.0200   0.976   0.980    26.3
+aw0p25      srd_restart                    0.01   0.9539   0.0338   0.986   0.967    25.3
+aw0p073     srd                           0.005   0.9423   0.0219   0.963   0.978    27.0
+nonorm4     srd_restart                   0.005   0.9346   0.0084   0.942   0.991    26.0
+
+================================================================================================
+PER-PAIR final IoU on the common set
+================================================================================================
+pair                  aw0p073     aw0p1875       aw0p25   nonorm1p25      nonorm4
+---------------------------------------------------------------------------------
+cat_face_bass          0.9477      *0.9504       0.9392       0.9501       0.9452
+sun_moon               0.9320      *0.9685       0.9496       0.9511       0.9225
+water_fire             0.9472       0.9636      *0.9728       0.9685       0.9360
+
+pair                  aw0p073     aw0p1875       aw0p25   nonorm1p25      nonorm4   (spill)
+---------------------------------------------------------------------------------
+cat_face_bass          0.0144       0.0288       0.0448       0.0229      *0.0103
+sun_moon               0.0268       0.0152       0.0357       0.0273      *0.0087
+water_fire             0.0245       0.0220       0.0210       0.0099      *0.0060
