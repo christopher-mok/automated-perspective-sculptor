@@ -1,0 +1,8 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+4283423	neg_cat_face_bass_noswept_nonorm1p25	cat_face_bass	noswept	nonorm1p25	2	2.5	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_noswept_nonorm1p25_20260725/neg_cat_face_bass_noswept_nonorm1p25
+4283424	neg_water_fire_noswept_nonorm1p25	water_fire	noswept	nonorm1p25	2	2.5	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_noswept_nonorm1p25_20260725/neg_water_fire_noswept_nonorm1p25
+4283425	neg_sun_moon_noswept_nonorm1p25	sun_moon	noswept	nonorm1p25	2	2.5	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_noswept_nonorm1p25_20260725/neg_sun_moon_noswept_nonorm1p25
+4283426	neg_horse_circle_noswept_nonorm1p25	horse_circle	noswept	nonorm1p25	2	2.5	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_noswept_nonorm1p25_20260725/neg_horse_circle_noswept_nonorm1p25
+4283427	neg_robot_man_noswept_nonorm1p25	robot_man	noswept	nonorm1p25	2	2.5	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_noswept_nonorm1p25_20260725/neg_robot_man_noswept_nonorm1p25
+4283428	neg_acm_scf_noswept_nonorm1p25	acm_scf	noswept	nonorm1p25	2	2.5	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_noswept_nonorm1p25_20260725/neg_acm_scf_noswept_nonorm1p25
+4283429	neg_teapot_droplets_noswept_nonorm1p25	teapot_droplets	noswept	nonorm1p25	2	2.5	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_noswept_nonorm1p25_20260725/neg_teapot_droplets_noswept_nonorm1p25

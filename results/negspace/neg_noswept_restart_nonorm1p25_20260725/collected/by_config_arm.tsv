@@ -1,2 +1,2 @@
 config	arm	n	final_mean_iou	best_mean_iou	final_mean_tversky	best_mean_tversky	final_patches	max_patches	final_mean_spill	final_mean_coverage	srd_total_deletes	final_step	total_seconds
-nonorm1p25	hinge2_restart_importnet	8	0.898139	0.911052	0.949371	0.960502	23.25	34	0.0506209	0.938324	19	2003.12	19346
+nonorm1p25	noswept_restart	7	0.864527	0.871692	0.931937	0.944791	19.7143	24.5714	0.065324	0.914568	13.7143	1846.43	6838.59

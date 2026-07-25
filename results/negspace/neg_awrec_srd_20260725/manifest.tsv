@@ -1,0 +1,9 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+4281970	neg_sun_moon_srd_aw0p073	sun_moon	srd	aw0p073	0.306	4.194	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_awrec_srd_20260725/neg_sun_moon_srd_aw0p073
+4281971	neg_water_fire_srd_aw0p073	water_fire	srd	aw0p073	0.306	4.194	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_awrec_srd_20260725/neg_water_fire_srd_aw0p073
+4281972	neg_cat_face_bass_srd_aw0p073	cat_face_bass	srd	aw0p073	0.306	4.194	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_awrec_srd_20260725/neg_cat_face_bass_srd_aw0p073
+4281973	neg_dance_argument_srd_aw0p073	dance_argument	srd	aw0p073	0.306	4.194	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_awrec_srd_20260725/neg_dance_argument_srd_aw0p073
+4281974	neg_horse_circle_srd_aw0p073	horse_circle	srd	aw0p073	0.306	4.194	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_awrec_srd_20260725/neg_horse_circle_srd_aw0p073
+4281975	neg_acm_scf_srd_aw0p073	acm_scf	srd	aw0p073	0.306	4.194	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_awrec_srd_20260725/neg_acm_scf_srd_aw0p073
+4281976	neg_teapot_droplets_srd_aw0p073	teapot_droplets	srd	aw0p073	0.306	4.194	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_awrec_srd_20260725/neg_teapot_droplets_srd_aw0p073
+4281977	neg_robot_man_srd_aw0p073	robot_man	srd	aw0p073	0.306	4.194	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_awrec_srd_20260725/neg_robot_man_srd_aw0p073

@@ -1,0 +1,8 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+4281550	neg_sun_moon_srd_restart_aw0p1875	sun_moon	srd_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_minarea_aw0p1875_lam0_20260725/neg_sun_moon_srd_restart_aw0p1875
+4281551	neg_water_fire_srd_restart_aw0p1875	water_fire	srd_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_minarea_aw0p1875_lam0_20260725/neg_water_fire_srd_restart_aw0p1875
+4281552	neg_cat_face_bass_srd_restart_aw0p1875	cat_face_bass	srd_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_minarea_aw0p1875_lam0_20260725/neg_cat_face_bass_srd_restart_aw0p1875
+4281553	neg_dance_argument_srd_restart_aw0p1875	dance_argument	srd_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_minarea_aw0p1875_lam0_20260725/neg_dance_argument_srd_restart_aw0p1875
+4281554	neg_horse_circle_srd_restart_aw0p1875	horse_circle	srd_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_minarea_aw0p1875_lam0_20260725/neg_horse_circle_srd_restart_aw0p1875
+4281555	neg_acm_scf_srd_restart_aw0p1875	acm_scf	srd_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_minarea_aw0p1875_lam0_20260725/neg_acm_scf_srd_restart_aw0p1875
+4281556	neg_teapot_droplets_srd_restart_aw0p1875	teapot_droplets	srd_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_minarea_aw0p1875_lam0_20260725/neg_teapot_droplets_srd_restart_aw0p1875
