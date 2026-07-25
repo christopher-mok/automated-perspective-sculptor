@@ -158,6 +158,7 @@ def init_experimental(
     device: str = "cpu",
     seed: int | None = None,
     swept_volume: "SweptVolume | None" = None,
+    theta_camera_margin: float = _THETA_CAMERA_MARGIN,
 ) -> list[Patch]:
     """Randomize patch centers within a 4x4x4 viewport-grid box."""
     rng = np.random.default_rng(seed)
@@ -174,7 +175,7 @@ def init_experimental(
             point = np.clip(point, _EXPERIMENTAL_MIN, _EXPERIMENTAL_MAX)
         patches.append(_make_patch(
             center=point.tolist(),
-            theta=_sample_allowed_theta(rng, camera_angles),
+            theta=_sample_allowed_theta(rng, camera_angles, theta_camera_margin),
             radius=patch_radius,
             device=device,
             label=f"patch_{i:04d}",
@@ -336,6 +337,7 @@ def initialize_patches(
     cameras: list["Camera"] | None = None,
     seed: int | None = None,
     swept_volume: "SweptVolume | None" = None,
+    theta_camera_margin: float = _THETA_CAMERA_MARGIN,
 ) -> list[Patch]:
     """Single entry-point called by the UI.
 
@@ -359,6 +361,7 @@ def initialize_patches(
             device,
             seed=seed,
             swept_volume=swept_volume,
+            theta_camera_margin=theta_camera_margin,
         )
 
     if mode == "SAM segmentation":
