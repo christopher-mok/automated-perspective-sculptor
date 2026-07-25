@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from scene.camera import Camera
 
 
-RewriteKind = Literal["add", "delete", "split"]
+RewriteKind = Literal["add", "delete", "split", "restart"]
 
 
 @dataclass
@@ -35,6 +35,11 @@ class SRDStats:
     total_adds: int = 0
     total_splits: int = 0
     total_deleted: int = 0
+    # Conflict-gated restarts. A restart is an atomic delete+respawn, so it
+    # appears in neither total_adds nor total_deleted: the piece count is
+    # unchanged and counting it as both would double-report the rewrite.
+    restarts: int = 0
+    total_restarts: int = 0
     active: int = 0
     evaluated: int = 0
     promising: int = 0
@@ -60,6 +65,8 @@ class RewriteCandidate:
             return f"DeletePatch({self.patch_index})"
         if self.kind == "split":
             return f"SplitPatch({self.patch_index})"
+        if self.kind == "restart":
+            return f"RestartPatch({self.patch_index})"
         return "AddPatch"
 
     @property
@@ -67,10 +74,15 @@ class RewriteCandidate:
         """Change in the scene's patch count if this rewrite is applied.
 
         A delete removes one piece; an add or a split each net one more (a
-        split turns one patch into two). Used to charge the piece-count
-        penalty against a rewrite's loss improvement.
+        split turns one patch into two); a restart deletes and respawns, so it
+        nets zero. Used to charge the piece-count penalty against a rewrite's
+        loss improvement.
         """
-        return -1 if self.kind == "delete" else 1
+        if self.kind == "delete":
+            return -1
+        if self.kind == "restart":
+            return 0
+        return 1
 
 
 def _patch_parameters(patches: Sequence[Patch]) -> list[torch.nn.Parameter]:
@@ -158,6 +170,9 @@ class StochasticRewriteDescent:
         disable_swept_volume_adds: bool = False,
         loss_only_deletion: bool = False,
         disable_splitting: bool = False,
+        delete_eval_steps: int = 1,
+        conflict_restart: bool = False,
+        conflict_eps: float = 1e-3,
     ) -> None:
         self.enabled = enabled
         self.interval = interval
@@ -216,6 +231,20 @@ class StochasticRewriteDescent:
         self.disable_swept_volume_adds = bool(disable_swept_volume_adds)
         self.loss_only_deletion = bool(loss_only_deletion)
         self.disable_splitting = bool(disable_splitting)
+        # Local lookahead granted to a deletion before it is scored. A deletion
+        # costs ~0.02 IoU on impact and recovers over ~100+ steps as the
+        # survivors close the hole, so scoring it after a single step measures
+        # the bottom of a transient. 1 is the historical behaviour.
+        self.delete_eval_steps = max(1, int(delete_eval_steps))
+        # Conflict-gated restart. When on, a deletion candidate that helps one
+        # view but hurts the other (opposite-signed per-view loss deltas) is
+        # turned into an atomic delete+respawn -- the replacement seeded from
+        # the swept volume over the hole the piece vacated -- instead of a plain
+        # delete the lookahead would reject. Pieces bad in both views stay plain
+        # deletes. conflict_eps is the per-view loss delta (in loss units) that
+        # a view must clear to count as helped/hurt, filtering render noise.
+        self.conflict_restart = bool(conflict_restart)
+        self.conflict_eps = max(0.0, float(conflict_eps))
         self._swept_point_order = np.empty(0, dtype=np.int64)
         self._swept_point_cursor = 0
         self.stats = SRDStats()
@@ -232,6 +261,7 @@ class StochasticRewriteDescent:
         """Run one SRD rewrite pass when the interval says it is time."""
         self.stats.added = 0
         self.stats.deleted = 0
+        self.stats.restarts = 0
         self.stats.evaluated = 0
         self.stats.promising = 0
         self.stats.accepted = 0
@@ -302,7 +332,8 @@ class StochasticRewriteDescent:
         print(
             f"  Total patches: {len(model.patches)}, total adds: {self.stats.total_adds}, "
             f"total splits: {self.stats.total_splits}, "
-            f"total deletes: {self.stats.total_deleted}"
+            f"total deletes: {self.stats.total_deleted}, "
+            f"total restarts: {self.stats.total_restarts}"
         )
         return self.stats
 
@@ -790,10 +821,18 @@ class StochasticRewriteDescent:
             self._restore_state(model, optimizer, saved_patches, saved_optimizer_state)
 
     def _rewrite_eval_steps(self, rewrite: RewriteCandidate) -> int:
-        """Use a slightly longer local lookahead for growth rewrites."""
-        if rewrite.kind in ("add", "split"):
+        """Local lookahead granted to a candidate before it is scored.
+
+        Growth rewrites get ``rewrite_eval_steps`` so a new piece has a chance
+        to move somewhere useful; a restart respawns a piece and so counts as
+        growth here. Deletions get ``delete_eval_steps``, which defaults to the
+        historical 1 but wants to be larger whenever the deletion is judged on
+        IoU: the survivors need room to close the hole before the measurement
+        is meaningful.
+        """
+        if rewrite.kind in ("add", "split", "restart"):
             return max(1, self.rewrite_eval_steps)
-        return 1
+        return max(1, self.delete_eval_steps)
 
     def _sample_rewrites(
         self,
@@ -849,7 +888,41 @@ class StochasticRewriteDescent:
                 or float(patch.compute_area().detach().cpu()) <= self.min_patch_area
             )
         ]
-        for _ in range(delete_budget):
+        # Conflict-gated restart. Classify pieces by their per-view loss delta:
+        # one that helps one view but hurts the other is offered as an atomic
+        # "restart" (delete + respawn into the residual it vacated) rather than
+        # a plain delete, which the lookahead would reject because the hole
+        # outweighs the spill relief. This also lets full-size conflicting
+        # pieces be reconsidered, which the size-gated eligibility above never
+        # would; pieces bad in both views fall through to the plain-delete pool.
+        restart_positions: dict[int, np.ndarray] = {}
+        if (
+            self.conflict_restart
+            and delete_budget > 0
+            and self.swept_volume is not None
+            and not self.disable_swept_volume_adds
+        ):
+            classify_indices = [
+                idx for idx, patch in enumerate(model.patches)
+                if current_step - int(getattr(patch, "creation_step", 0)) >= self.cooldown_steps
+            ]
+            restart_positions = self._classify_conflict_deletes(model, classify_indices)
+            # A conflicting piece is offered as a restart, not both a restart and
+            # a plain delete.
+            eligible_delete_indices = [
+                idx for idx in eligible_delete_indices if idx not in restart_positions
+            ]
+
+        # Offer each detected conflict once, up to the delete budget, so the
+        # interesting cases are always evaluated rather than crowded out by the
+        # uniform draw; fill the rest of the budget with plain deletes.
+        remaining_delete_budget = delete_budget
+        for idx in list(restart_positions)[:delete_budget]:
+            candidates.append(RewriteCandidate(
+                kind="restart", patch_index=idx, position=restart_positions[idx],
+            ))
+            remaining_delete_budget -= 1
+        for _ in range(remaining_delete_budget):
             if not eligible_delete_indices:
                 break
             idx = int(np.random.choice(eligible_delete_indices))
@@ -974,6 +1047,79 @@ class StochasticRewriteDescent:
         weights = areas / areas.sum()
         return int(np.random.choice(list(eligible_indices), p=weights))
 
+    def _classify_conflict_deletes(
+        self, model, indices: Sequence[int]
+    ) -> dict[int, np.ndarray]:
+        """Map each conflicting piece to a swept-volume respawn position.
+
+        A piece *conflicts* when deleting it moves the two views' losses in
+        opposite directions -- one view improves (the piece was spilling there)
+        while the other worsens (the piece was covering there, so a hole opens).
+        With the per-view delta
+
+            d_v = L_v(without piece) - L_v(with piece),
+
+        the piece conflicts iff ``max_v d_v > eps and min_v d_v < -eps``. For
+        each such piece the respawn position is drawn from the swept volume over
+        the target cells it *newly* uncovers, so the replacement starts in the
+        residual it vacated. Pieces bad in both views (both deltas <= -eps) fall
+        through to a plain delete; pieces good in both (both deltas >= eps) are
+        not deletion candidates at all. A conflicting piece with no swept-volume
+        point over its hole is omitted (it falls back to a plain delete).
+
+        Returns ``{patch_index: respawn_position}`` for the conflicting pieces
+        that have a valid respawn; per-view losses come from the model's own
+        ``_loss_from_renders`` components, so the gate is in the same units and
+        with the same weights as the acceptance test.
+        """
+        respawns: dict[int, np.ndarray] = {}
+        if len(indices) == 0 or len(model.patches) <= 1:
+            return respawns
+
+        with torch.no_grad():
+            full1, full2 = model.renderer.render_both(
+                model.patches, model.camera1, model.camera2, model.render_resolutions
+            )
+            _, comp_full = model._loss_from_renders(full1, full2, model.patches)
+        loss1_full = float(comp_full["loss1"].detach().cpu())
+        loss2_full = float(comp_full["loss2"].detach().cpu())
+
+        target1 = model.target1_mask.detach().cpu().numpy().squeeze() > 0.5
+        uncovered1_before = target1 & ~self._render_alpha_mask(full1)
+        target2 = None
+        uncovered2_before = None
+        if model.target2_mask is not None:
+            target2 = model.target2_mask.detach().cpu().numpy().squeeze() > 0.5
+            uncovered2_before = target2 & ~self._render_alpha_mask(full2)
+
+        eps = self.conflict_eps
+        for idx in indices:
+            remaining = [p for i, p in enumerate(model.patches) if i != idx]
+            if not remaining:
+                continue
+            with torch.no_grad():
+                without1, without2 = model.renderer.render_both(
+                    remaining, model.camera1, model.camera2, model.render_resolutions
+                )
+                _, comp_without = model._loss_from_renders(without1, without2, remaining)
+            d1 = float(comp_without["loss1"].detach().cpu()) - loss1_full
+            d2 = float(comp_without["loss2"].detach().cpu()) - loss2_full
+            if not (max(d1, d2) > eps and min(d1, d2) < -eps):
+                continue  # bad-in-both -> plain delete; good-in-both -> keep
+
+            # The residual this piece vacated: target cells uncovered only after
+            # its removal, in whichever view(s) it was carrying.
+            hole1 = (target1 & ~self._render_alpha_mask(without1)) & ~uncovered1_before
+            hole2 = None
+            if target2 is not None:
+                hole2 = (target2 & ~self._render_alpha_mask(without2)) & ~uncovered2_before
+            if not (np.any(hole1) or (hole2 is not None and np.any(hole2))):
+                continue
+            position = self._sample_guided_swept_volume_position(model, (hole1, hole2))
+            if position is not None:
+                respawns[idx] = position
+        return respawns
+
     def _select_compatible(self, candidates: Sequence[RewriteCandidate]) -> list[RewriteCandidate]:
         accepted: list[RewriteCandidate] = []
         touched_indices: set[int] = set()
@@ -988,6 +1134,19 @@ class StochasticRewriteDescent:
                     continue
                 touched_indices.add(candidate.patch_index)
                 deletions += 1
+                accepted.append(candidate)
+                continue
+
+            if candidate.kind == "restart":
+                # A restart both deletes and adds, so it must fit under both
+                # budgets and, like a delete, claims the piece index it removes.
+                if candidate.patch_index is None or candidate.patch_index in touched_indices:
+                    continue
+                if deletions >= self.max_deletions or additions >= self.max_additions:
+                    continue
+                touched_indices.add(candidate.patch_index)
+                deletions += 1
+                additions += 1
                 accepted.append(candidate)
                 continue
 
@@ -1018,10 +1177,13 @@ class StochasticRewriteDescent:
         if not rewrites:
             return
 
-        indexed_rewrites = [r for r in rewrites if r.kind in ("delete", "split")]
+        # Restart, like delete and split, is keyed by a patch index and must be
+        # applied high-index-first so earlier pops do not shift later indices;
+        # its respawn appends to the end, which never disturbs a lower index.
+        indexed_rewrites = [r for r in rewrites if r.kind in ("delete", "split", "restart")]
         for rewrite in sorted(indexed_rewrites, key=lambda r: r.patch_index or 0, reverse=True):
             self._apply_single(model, rewrite, current_step=current_step, tentative=False)
-        for rewrite in [r for r in rewrites if r.kind not in ("delete", "split")]:
+        for rewrite in [r for r in rewrites if r.kind not in ("delete", "split", "restart")]:
             self._apply_single(model, rewrite, current_step=current_step, tentative=False)
 
         model.optim = self._rebuild_optimizer(model, optimizer)
@@ -1048,6 +1210,36 @@ class StochasticRewriteDescent:
                     f"[SRD rewrite] deleted patch={rewrite.patch_index}, "
                     f"position=({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}), "
                     f"reason={rewrite.reason or 'accepted rewrite'}"
+                )
+            return
+
+        if rewrite.kind == "restart":
+            # Atomic delete-and-respawn: remove the conflicting piece, then drop
+            # a fresh piece into the residual it vacated (position sampled from
+            # the swept volume over its hole). Net piece count is unchanged.
+            if rewrite.patch_index is None or rewrite.patch_index >= len(model.patches):
+                return
+            old_patch = model.patches.pop(rewrite.patch_index)
+            rewrite.applied_index = rewrite.patch_index
+            respawned = False
+            if rewrite.position is not None and len(model.patches) < self.max_patches:
+                new_patch = _small_default_patch(
+                    rewrite.position,
+                    model.device,
+                    [1.0, 1.0, 1.0],
+                    current_step,
+                    label=f"patch_{len(model.patches):04d}",
+                )
+                model.patches.append(new_patch)
+                respawned = True
+            if not tentative:
+                self.stats.restarts += 1
+                self.stats.total_restarts += 1
+                pos = old_patch.center.detach().cpu().numpy()
+                print(
+                    f"[SRD rewrite] restart patch={rewrite.patch_index} "
+                    f"(conflicting views) at ({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}), "
+                    f"respawned={respawned}, improvement={rewrite.improvement:.6f}"
                 )
             return
 

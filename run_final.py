@@ -67,6 +67,31 @@ def _save_render(render, path: Path) -> None:
     Image.fromarray(array, mode="RGBA").save(path)
 
 
+def _export_views(
+    optimizer,
+    cameras,
+    scale: int,
+    view1_path: Path,
+    view2_path: Path,
+) -> None:
+    """Render both camera views and write them as PNGs.
+
+    ``scale`` multiplies the optimization resolution, so 1 costs about what one
+    evaluation render costs and is what the in-run snapshots use; the final
+    exported views use --render-scale instead.
+    """
+    scale = max(1, int(scale))
+    with torch.no_grad():
+        render1, render2 = optimizer.renderer.render_both(
+            optimizer.patches,
+            cameras[0],
+            cameras[1],
+            (optimizer.resolution[0] * scale, optimizer.resolution[1] * scale),
+        )
+    _save_render(render1.detach().cpu(), view1_path)
+    _save_render(render2.detach().cpu(), view2_path)
+
+
 def _render_stem(args: argparse.Namespace) -> str:
     """Self-describing basename for exported views, e.g. horse-circle_srd_lam0p01_seed0.
 
@@ -137,6 +162,32 @@ def _parse_args() -> argparse.Namespace:
     ops.add_argument("--add-weight", type=float, default=0.35)
     ops.add_argument("--delete-weight", type=float, default=0.15)
     ops.add_argument("--split-weight", type=float, default=0.50)
+    ops.add_argument(
+        "--delete-eval-steps",
+        type=int,
+        default=1,
+        help="Local refit steps a deletion gets before it is scored. A "
+             "deletion costs ~0.02 IoU on impact and recovers over 100+ steps "
+             "as the survivors close the hole, so the historical default of 1 "
+             "measures the bottom of a transient rather than the settled cost.",
+    )
+    ops.add_argument(
+        "--conflict-restart",
+        action="store_true",
+        help="Turn a deletion candidate that helps one view but hurts the "
+             "other into an atomic delete+respawn, the replacement seeded from "
+             "the swept volume over the hole the piece vacated, instead of a "
+             "plain delete the lookahead would reject. Pieces bad in both "
+             "views stay plain deletes; net piece count is unchanged.",
+    )
+    ops.add_argument(
+        "--conflict-eps",
+        type=float,
+        default=1e-3,
+        help="Per-view loss delta a view must clear to count as helped or "
+             "hurt by a deletion, filtering render noise out of the conflict "
+             "test.",
+    )
     run.add_argument(
         "--lambda-count",
         type=float,
@@ -281,6 +332,23 @@ def _parse_args() -> argparse.Namespace:
         help="Resolution multiplier for the exported final views "
              "(relative to the 192x256 optimization resolution).",
     )
+    run.add_argument(
+        "--render-every",
+        type=int,
+        default=0,
+        help="Write a snapshot of both camera views every N optimization "
+             "steps, into <output-dir>/renders/, so the run can be read as an "
+             "image sequence against history.csv. 0 disables it.",
+    )
+    run.add_argument(
+        "--render-every-scale",
+        type=int,
+        default=1,
+        help="Resolution multiplier for the --render-every snapshots, kept "
+             "separate from --render-scale because these are written hundreds "
+             "of times per run: at 1 a snapshot pair costs about one "
+             "evaluation render and a few tens of KB.",
+    )
     run.add_argument("--output-dir", required=True, help="Report/CSV directory.")
 
     stop = parser.add_argument_group("early stopping")
@@ -381,6 +449,9 @@ def _srd_config(args: argparse.Namespace) -> dict[str, object] | None:
         "swept_volume_spawn_fraction": args.swept_spawn_fraction,
         "loss_only_deletion": False,
         "disable_splitting": False,
+        "delete_eval_steps": args.delete_eval_steps,
+        "conflict_restart": args.conflict_restart,
+        "conflict_eps": args.conflict_eps,
     }
 
 
@@ -520,6 +591,11 @@ def _write_report(
         f"add_weight={args.add_weight:.6g}",
         f"delete_weight={args.delete_weight:.6g}",
         f"split_weight={args.split_weight:.6g}",
+        f"delete_eval_steps={args.delete_eval_steps}",
+        f"conflict_restart={args.conflict_restart}",
+        f"conflict_eps={args.conflict_eps:.6g}",
+        f"render_every={args.render_every}",
+        f"render_every_scale={args.render_every_scale}",
         f"disable_swept_volume_adds={args.arm == 'srd_no_swept'}",
         f"lambda_count={args.lambda_count:.6g}",
         f"lambda_mode={args.lambda_mode}",
@@ -607,6 +683,9 @@ def _write_report(
             f"  srd_total_splits={getattr(srd_stats, 'total_splits', 0)}",
             f"  srd_total_growth={getattr(srd_stats, 'total_added', 0)}",
             f"  srd_total_deletes={getattr(srd_stats, 'total_deleted', 0)}",
+            # A restart is an atomic delete+respawn, so it is in neither the
+            # add nor the delete total; counted separately.
+            f"  srd_total_restarts={getattr(srd_stats, 'total_restarts', 0)}",
         ])
 
     if pruning_selected:
@@ -709,6 +788,14 @@ def main() -> None:
     )
 
     max_seconds = args.max_hours * 3600.0
+    # Frame-by-frame view record, written alongside history.csv so a curve can
+    # be read against the geometry that produced it. Cheap at scale 1, but it
+    # is one more render per capture, so it sits inside the timed region and
+    # total_seconds is only comparable across runs at the same cadence.
+    snapshot_dir = output_dir / "renders"
+    if args.render_every > 0:
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+
     optimization_started = time.perf_counter()
 
     history: list[dict] = []
@@ -723,6 +810,19 @@ def main() -> None:
 
     for step_index in range(1, args.steps + 1):
         step_metrics = optimizer.step(step_index, args.steps)
+
+        if args.render_every > 0 and (
+            step_index % args.render_every == 0
+            or step_index == 1
+            or step_index == args.steps
+        ):
+            _export_views(
+                optimizer,
+                cameras,
+                args.render_every_scale,
+                snapshot_dir / f"step{step_index:05d}_view1.png",
+                snapshot_dir / f"step{step_index:05d}_view2.png",
+            )
 
         is_eval = (
             step_index % args.eval_interval == 0
