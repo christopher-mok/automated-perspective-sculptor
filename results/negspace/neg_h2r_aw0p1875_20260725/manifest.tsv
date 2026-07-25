@@ -1,0 +1,8 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+4283632	neg_water_fire_hinge2_restart_aw0p1875	water_fire	hinge2_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2r_aw0p1875_20260725/neg_water_fire_hinge2_restart_aw0p1875
+4283633	neg_cat_face_bass_hinge2_restart_aw0p1875	cat_face_bass	hinge2_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2r_aw0p1875_20260725/neg_cat_face_bass_hinge2_restart_aw0p1875
+4283634	neg_robot_man_hinge2_restart_aw0p1875	robot_man	hinge2_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2r_aw0p1875_20260725/neg_robot_man_hinge2_restart_aw0p1875
+4283635	neg_sun_moon_hinge2_restart_aw0p1875	sun_moon	hinge2_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2r_aw0p1875_20260725/neg_sun_moon_hinge2_restart_aw0p1875
+4283636	neg_dance_argument_hinge2_restart_aw0p1875	dance_argument	hinge2_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2r_aw0p1875_20260725/neg_dance_argument_hinge2_restart_aw0p1875
+4283637	neg_teapot_droplets_hinge2_restart_aw0p1875	teapot_droplets	hinge2_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2r_aw0p1875_20260725/neg_teapot_droplets_hinge2_restart_aw0p1875
+4283638	neg_acm_scf_hinge2_restart_aw0p1875	acm_scf	hinge2_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2r_aw0p1875_20260725/neg_acm_scf_hinge2_restart_aw0p1875
