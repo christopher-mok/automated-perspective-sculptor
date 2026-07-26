@@ -1,0 +1,72 @@
+====================================================================================================
+SRD-FAMILY RUNS BY WEIGHT CONFIG  (no count objective)
+====================================================================================================
+config      eff.ratio sweep                                arm            n     IoU   spill    cov   prec  pieces
+----------------------------------------------------------------------------------------------------
+nonorm4        0.0316 neg_20260724                         srd            7  0.7940  0.0449  0.826  0.949    16.7
+nonorm4        0.0316 neg_importnet_20260724               importnet      7  0.7709  0.0528  0.806  0.940    17.4
+nonorm4        0.0316 neg_minarea_nonorm4_20260724         srd_restart    7  0.8816  0.0220  0.900  0.977    29.6
+nonorm4        0.0316 neg_restart_20260724                 srd_restart    7  0.7783  0.0251  0.797  0.970    16.7
+aw0p073        0.0730 neg_awrec_srd_20260725               srd            5  0.9235  0.0292  0.950  0.971    28.0
+nonorm1p25     0.0730 neg_srd_nonorm1p25_20260724          srd            7  0.8146  0.0764  0.873  0.923    17.4
+nonorm1p25     0.0730 orig_20260724 [ORIGINAL]             srd_restart    6  0.9042  0.0594  0.953  0.946    28.3
+aw0p125        0.1250 neg_20260724                         srd            7  0.8272  0.0817  0.888  0.923    17.0
+aw0p125        0.1250 neg_restart_aw0p125_20260724         srd_restart    7  0.8105  0.0616  0.858  0.937    16.4
+aw0p1875       0.1875 neg_20260724                         srd            7  0.8517  0.0872  0.921  0.918    17.1
+aw0p1875       0.1875 neg_minarea_aw0p1875_lam0_20260725   srd_restart    6  0.9160  0.0570  0.964  0.948    29.8
+aw0p25         0.2500 neg_restart_aw0p25_20260724          srd_restart    7  0.8362  0.1080  0.918  0.905    15.9
+aw0p25         0.2500 neg_restart_aw0p25_lam0_20260724     srd_restart    7  0.9075  0.0771  0.971  0.932    28.7
+
+====================================================================================================
+POOLED BY WEIGHT CONFIG (all SRD-family arms and sweeps together)
+====================================================================================================
+config      eff.ratio    n      IoU     best    spill     cov    prec  pieces
+----------------------------------------------------------------------------
+nonorm4        0.0316   28   0.8062   0.8188   0.0362   0.832   0.959    20.1
+aw0p073        0.0730    5   0.9235   0.9273   0.0292   0.950   0.971    28.0
+nonorm1p25     0.0730   13   0.8559   0.8654   0.0685   0.910   0.934    22.5
+aw0p125        0.1250   14   0.8189   0.8241   0.0716   0.873   0.930    16.7
+aw0p1875       0.1875   13   0.8814   0.8875   0.0732   0.941   0.932    23.0
+aw0p25         0.2500   14   0.8719   0.8758   0.0925   0.945   0.918    22.3
+
+====================================================================================================
+ORIGINAL BRANCH vs MAIN BRANCH, matched weights (nonorm1p25 = 2.0/2.5)
+====================================================================================================
+pair             source                             arm               IoU    spill  pieces   step         stop
+----------------------------------------------------------------------------------------------------
+acm_scf          ORIGINAL                           srd_restart    0.8029   0.1269      31   1500    converged
+acm_scf          main/neg_srd_nonorm1p25_20260724   srd            0.6536   0.1076      19   1500    converged
+
+cat_face_bass    ORIGINAL                           srd_restart    0.9501   0.0229      25   3250    converged
+cat_face_bass    main/neg_srd_nonorm1p25_20260724   srd            0.8966   0.0633      16   1600    converged
+
+dance_argument   main/neg_srd_nonorm1p25_20260724   srd            0.8428   0.0333      17   3200    converged
+
+horse_circle     ORIGINAL                           srd_restart    0.9067   0.0656      27   1800    converged
+horse_circle     main/neg_srd_nonorm1p25_20260724   srd            0.8692   0.0728      18   2025    converged
+
+sun_moon         ORIGINAL                           srd_restart    0.9511   0.0273      30   1850    converged
+sun_moon         main/neg_srd_nonorm1p25_20260724   srd            0.8636   0.0113      16   1500    converged
+
+teapot_droplets  ORIGINAL                           srd_restart    0.8456   0.1036      33   1925    converged
+teapot_droplets  main/neg_srd_nonorm1p25_20260724   srd            0.7202   0.1416      19   1500    converged
+
+water_fire       ORIGINAL                           srd_restart    0.9685   0.0099      24   2150    converged
+water_fire       main/neg_srd_nonorm1p25_20260724   srd            0.8562   0.1048      17   1825    converged
+
+
+====================================================================================================
+PER-PAIR, best weight config by final IoU (SRD family)
+====================================================================================================
+pair             winner cfg       IoU    spill  pieces   runner-up        IoU
+------------------------------------------------------------------------------------
+acm_scf          aw0p25        0.8663   0.1207      30   aw0p073       0.8376
+cat_face_bass    aw0p1875      0.9504   0.0288      30   nonorm1p25    0.9501
+dance_argument   aw0p25        0.9128   0.0670      36   aw0p1875      0.8858
+horse_circle     nonorm4       0.9321   0.0085      32   nonorm1p25    0.9067
+robot_man        aw0p073       0.9529   0.0159      22   -             0.0000
+sun_moon         aw0p1875      0.9685   0.0152      26   nonorm1p25    0.9511
+teapot_droplets  nonorm1p25    0.8456   0.1036      33   aw0p1875      0.8325
+water_fire       aw0p25        0.9728   0.0210      25   nonorm1p25    0.9685
+
+config win counts: {'aw0p25': 3, 'aw0p1875': 2, 'nonorm4': 1, 'aw0p073': 1, 'nonorm1p25': 1}

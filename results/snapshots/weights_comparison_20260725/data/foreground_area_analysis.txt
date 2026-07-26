@@ -1,0 +1,56 @@
+pair             view            f_fg    f_bg  w_sil_eq   w_ns_eq   ratio
+----------------------------------------------------------------------------
+water_fire       view1 water   0.1213  0.8787    0.2427    4.2573  0.0570
+water_fire       view2 fire    0.1312  0.8688    0.2624    4.2376  0.0619
+water_fire       MEAN          0.1263  0.8737    0.2526    4.2474  0.0595
+
+sun_moon         view1 sun     0.1885  0.8115    0.3770    4.1230  0.0914
+sun_moon         view2 moon    0.1710  0.8290    0.3419    4.1581  0.0822
+sun_moon         MEAN          0.1797  0.8203    0.3595    4.1405  0.0868
+
+cat_face_bass    view1 cat_face  0.2034  0.7966    0.4067    4.0933  0.0994
+cat_face_bass    view2 bass    0.1876  0.8124    0.3751    4.1249  0.0909
+cat_face_bass    MEAN          0.1955  0.8045    0.3909    4.1091  0.0951
+
+horse_circle     view1 horse   0.2185  0.7815    0.4371    4.0629  0.1076
+horse_circle     view2 circle  0.3071  0.6929    0.6143    3.8857  0.1581
+horse_circle     MEAN          0.2628  0.7372    0.5257    3.9743  0.1323
+
+acm_scf          view1 acm     0.2752  0.7248    0.5504    3.9496  0.1394
+acm_scf          view2 scf     0.1244  0.8756    0.2488    4.2512  0.0585
+acm_scf          MEAN          0.1998  0.8002    0.3996    4.1004  0.0975
+
+dance_argument   view1 dance   0.1234  0.8766    0.2467    4.2533  0.0580
+dance_argument   view2 argument  0.2340  0.7660    0.4679    4.0321  0.1160
+dance_argument   MEAN          0.1787  0.8213    0.3573    4.1427  0.0863
+
+teapot_droplets  view1 teapot  0.1933  0.8067    0.3867    4.1133  0.0940
+teapot_droplets  view2 droplets  0.0570  0.9430    0.1139    4.3861  0.0260
+teapot_droplets  MEAN          0.1251  0.8749    0.2503    4.2497  0.0589
+
+robot_man        view1 robot   0.1720  0.8280    0.3441    4.1559  0.0828
+robot_man        view2 man     0.0786  0.9214    0.1572    4.3428  0.0362
+robot_man        MEAN          0.1253  0.8747    0.2507    4.2493  0.0590
+
+
+Per-pair means, sorted by silhouette:negative-space ratio
+pair                f_fg  silhouette  neg_space   ratio    sum
+--------------------------------------------------------------
+teapot_droplets   0.1251      0.2503     4.2497  0.0589  4.500
+robot_man         0.1253      0.2507     4.2493  0.0590  4.500
+water_fire        0.1263      0.2526     4.2474  0.0595  4.500
+dance_argument    0.1787      0.3573     4.1427  0.0863  4.500
+sun_moon          0.1797      0.3595     4.1405  0.0868  4.500
+cat_face_bass     0.1955      0.3909     4.1091  0.0951  4.500
+acm_scf           0.1998      0.3996     4.1004  0.0975  4.500
+horse_circle      0.2628      0.5257     3.9743  0.1323  4.500
+
+The two pairs that look best on non-normalized original weights:
+  water_fire   f_fg=0.1263  ->  silhouette 0.2526, negative_space 4.2474  (ratio 0.0595)
+  sun_moon     f_fg=0.1797  ->  silhouette 0.3595, negative_space 4.1405  (ratio 0.0868)
+  combined     f_fg=0.1530  ->  silhouette 0.3060, negative_space 4.1940  (ratio 0.0730)
+
+Existing CONFIGS ratios for comparison (silhouette:negative_space):
+  aw0p125   ratio 0.1250  silhouette 0.5000  negative_space 4.0000
+  aw0p1875  ratio 0.1875  silhouette 0.7105  negative_space 3.7895
+  aw0p25    ratio 0.2500  silhouette 0.9000  negative_space 3.6000
