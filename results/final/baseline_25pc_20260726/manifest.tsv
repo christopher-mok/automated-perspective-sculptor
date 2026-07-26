@@ -1,0 +1,2 @@
+job_id	job_name	pair	arm	overlap_mode	seed	n_patches	output_dir
+4300058	final_horse_circle_basic_seed0	horse_circle	basic	planar	0	25	/oscar/home/cjmok/aps-hinge2/results/final/baseline_25pc_20260726/final_horse_circle_basic_seed0
