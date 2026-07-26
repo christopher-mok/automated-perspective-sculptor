@@ -122,6 +122,29 @@ CONFIGS: dict[str, dict] = {
         "silhouette": 0.306, "negative_space": 4.194,
         "area_normalized": True, "label": "area-norm sil:neg 0.073 (matches nonorm 2.0/2.5)",
     },
+    "silonly": {
+        # Silhouette only: negative space priced at zero.
+        #
+        # This MUST be area-normalized. Non-normalized silhouette_loss averages
+        # (alpha - mask)^2 over the whole frame, and in the background mask = 0,
+        # so the term is alpha^2 there -- it carries a spill penalty of its own.
+        # Splitting it by foreground fraction f gives
+        #     L_sil_nonnorm = f * L_sil_norm + (1 - f) * L_negspace,
+        # so 4.5 / 0 run non-normalized would be equivalent to silhouette 0.75,
+        # negative_space 3.75 at f = 0.167 -- an effective ratio of 0.20, close
+        # to aw0p1875, i.e. still overwhelmingly negative-space weighted. The
+        # normalized silhouette term is masked to the foreground, so here the
+        # zero actually removes every spill penalty from the view loss.
+        "silhouette": WEIGHT_SUM, "negative_space": 0.0,
+        "area_normalized": True, "label": "area-norm silhouette only (neg space 0)",
+    },
+    "awflip": {
+        # aw0p073 with its two weights swapped: the most negative-space-leaning
+        # normalized config turned into the most silhouette-leaning one, at the
+        # same sum. sil:neg = 4.194 / 0.306 = 13.7, against aw0p073's 0.073.
+        "silhouette": 4.194, "negative_space": 0.306,
+        "area_normalized": True, "label": "area-norm sil:neg 13.7 (aw0p073 flipped)",
+    },
     "nonorm1p25": {
         # The SceneOptimizer class defaults, which every run before the
         # negative-space batches used implicitly: negative space only 1.25x
@@ -242,6 +265,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--configs", nargs="*", default=None, choices=sorted(CONFIG_TAGS),
                         help="Override the loss-config list.")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--trials", type=int, default=1,
+                        help="Seeds per configuration, counting up from --seed. "
+                             "Above 1, job names gain a _seed<N> suffix; at 1 "
+                             "the historical unsuffixed names are kept.")
     parser.add_argument("--count-lambda", default=HINGE2_LAMBDA)
     parser.add_argument("--count-target-iou", type=float, default=HINGE2_COUNT_TARGET_IOU)
 
@@ -287,6 +314,21 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _seeds(args: argparse.Namespace) -> tuple[int, ...]:
+    """Seeds this sweep runs, one per trial starting at --seed."""
+    return tuple(range(args.seed, args.seed + max(1, args.trials)))
+
+
+def _seed_suffix(args: argparse.Namespace, seed: int) -> str:
+    """'_seed<N>' only for multi-trial sweeps.
+
+    Single-trial sweeps keep the bare 'neg_<pair>_<arm>_<config>' name that
+    every earlier batch and its collected/ output already use, so adding
+    trials does not rename anything already on disk.
+    """
+    return f"_seed{seed}" if max(1, args.trials) > 1 else ""
+
+
 def _build_jobs(args: argparse.Namespace, sweep_dir: Path) -> list[dict]:
     image_dir = _PROJECT_ROOT / "images"
     jobs: list[dict] = []
@@ -296,59 +338,63 @@ def _build_jobs(args: argparse.Namespace, sweep_dir: Path) -> list[dict]:
             cfg = CONFIGS[config_tag]
             for arm in args.arms:
                 settings = ARM_SETTINGS[arm]
-                job_name = f"neg_{pair}_{arm}_{config_tag}"
-                output_dir = sweep_dir / job_name
-                command = [
-                    args.python, "run_final.py",
-                    "--target1", str(image_dir / target1),
-                    "--target2", str(image_dir / target2),
-                    "--arm", settings["base_arm"],
-                    "--overlap-mode", "planar",
-                    "--seed", str(args.seed),
-                    "--steps", str(args.steps),
-                    "--early-stop",
-                    "--min-steps", str(args.min_steps),
-                    "--patience-steps", str(args.patience_steps),
-                    "--eval-interval", str(args.eval_interval),
-                    "--render-every", str(args.render_every),
-                    "--render-every-scale", str(args.render_every_scale),
-                    "--n-patches", str(args.n_patches),
-                    "--swept-resolution", str(args.swept_resolution),
-                    "--swept-spawn-fraction", str(args.swept_spawn_fraction),
-                    "--srd-candidates", str(args.srd_candidates),
-                    "--srd-min-patch-area", f"{args.srd_min_patch_area:g}",
-                    "--lambda-count", f"{args.lambda_count:g}",
-                    "--silhouette-weight", f"{cfg['silhouette']:g}",
-                    "--negative-space-weight", f"{cfg['negative_space']:g}",
-                    "--render-scale", str(args.render_scale),
-                    "--max-hours", str(args.max_hours),
-                    "--device", args.device,
-                    "--output-dir", str(output_dir),
-                ]
-                if cfg["area_normalized"]:
-                    command += ["--area-normalized-view-loss"]
-                if settings["count_objective"]:
-                    command += [
-                        "--count-objective",
-                        "--count-target-iou", f"{args.count_target_iou:g}",
-                        *_hinge2_flags(args.count_lambda),
+                for seed in _seeds(args):
+                    job_name = f"neg_{pair}_{arm}_{config_tag}{_seed_suffix(args, seed)}"
+                    output_dir = sweep_dir / job_name
+                    command = [
+                        args.python, "run_final.py",
+                        "--target1", str(image_dir / target1),
+                        "--target2", str(image_dir / target2),
+                        "--arm", settings["base_arm"],
+                        "--overlap-mode", "planar",
+                        "--seed", str(seed),
+                        "--steps", str(args.steps),
+                        "--early-stop",
+                        "--min-steps", str(args.min_steps),
+                        "--patience-steps", str(args.patience_steps),
+                        "--eval-interval", str(args.eval_interval),
+                        "--render-every", str(args.render_every),
+                        "--render-every-scale", str(args.render_every_scale),
+                        "--n-patches", str(args.n_patches),
+                        "--swept-resolution", str(args.swept_resolution),
+                        "--swept-spawn-fraction", str(args.swept_spawn_fraction),
+                        "--srd-candidates", str(args.srd_candidates),
+                        "--srd-min-patch-area", f"{args.srd_min_patch_area:g}",
+                        "--lambda-count", f"{args.lambda_count:g}",
+                        "--silhouette-weight", f"{cfg['silhouette']:g}",
+                        "--negative-space-weight", f"{cfg['negative_space']:g}",
+                        "--render-scale", str(args.render_scale),
+                        "--max-hours", str(args.max_hours),
+                        "--device", args.device,
+                        "--output-dir", str(output_dir),
                     ]
-                if settings.get("deletion_importance"):
-                    command += [
-                        "--deletion-importance",
-                        "--deletion-temperature", f"{settings['deletion_temperature']:g}",
-                        "--deletion-proxy", settings["deletion_proxy"],
-                    ]
-                if settings.get("conflict_restart"):
-                    command += ["--conflict-restart"]
-                if settings.get("unconstrained_theta"):
-                    command += ["--unconstrained-theta"]
-                jobs.append({
-                    "name": job_name, "pair": pair, "arm": arm, "config": config_tag,
-                    "silhouette": cfg["silhouette"], "negative_space": cfg["negative_space"],
-                    "area_normalized": cfg["area_normalized"],
-                    "output_dir": output_dir, "command": command,
-                })
+                    if cfg["area_normalized"]:
+                        command += ["--area-normalized-view-loss"]
+                    if settings["count_objective"]:
+                        command += [
+                            "--count-objective",
+                            "--count-target-iou", f"{args.count_target_iou:g}",
+                            *_hinge2_flags(args.count_lambda),
+                        ]
+                    if settings.get("deletion_importance"):
+                        command += [
+                            "--deletion-importance",
+                            "--deletion-temperature",
+                            f"{settings['deletion_temperature']:g}",
+                            "--deletion-proxy", settings["deletion_proxy"],
+                        ]
+                    if settings.get("conflict_restart"):
+                        command += ["--conflict-restart"]
+                    if settings.get("unconstrained_theta"):
+                        command += ["--unconstrained-theta"]
+                    jobs.append({
+                        "name": job_name, "pair": pair, "arm": arm,
+                        "config": config_tag, "seed": seed,
+                        "silhouette": cfg["silhouette"],
+                        "negative_space": cfg["negative_space"],
+                        "area_normalized": cfg["area_normalized"],
+                        "output_dir": output_dir, "command": command,
+                    })
     return jobs
 
 
@@ -393,7 +439,7 @@ def _write_manifest(sweep_dir: Path, rows: list[dict]) -> Path:
 # ---------------------------------------------------------------------------
 
 _SUMMARY_KEYS = (
-    "stop_reason", "final_step", "final_loss",
+    "seed", "stop_reason", "final_step", "final_loss",
     "final_mean_iou", "final_view1_iou", "final_view2_iou",
     "best_mean_iou", "best_mean_iou_step",
     "final_patches", "start_patches", "max_patches", "min_patches", "mean_patches",
@@ -444,8 +490,11 @@ def _best_tversky_from_history(history: Path, alpha: float, beta: float) -> floa
 
 
 def _pair_arm_config(job_name: str) -> tuple[str, str, str]:
-    """Split 'neg_<pair>_<arm>_<config>' back into its parts."""
+    """Split 'neg_<pair>_<arm>_<config>[_seed<N>]' back into its parts."""
     stripped = re.sub(r"^neg_", "", job_name)
+    # Multi-trial sweeps suffix the seed; the seed itself is read from
+    # report.txt, so it only has to be removed before matching config and arm.
+    stripped = re.sub(r"_seed\d+$", "", stripped)
     for config in sorted(CONFIG_TAGS, key=len, reverse=True):
         if stripped.endswith(f"_{config}"):
             rest = stripped[: -len(config) - 1]
@@ -523,9 +572,20 @@ def _collect(sweep_dir: Path, alpha: float, beta: float) -> None:
     views_dir.mkdir(parents=True, exist_ok=True)
     view_count = 0
     for row in rows:
+        # Multi-trial sweeps repeat (pair, arm, config) once per seed, so the
+        # seed has to survive into the filename or every trial but the last is
+        # silently overwritten. Single-trial sweeps keep the historical name.
+        seed_tag = ""
+        seed_match = re.search(r"_seed(\d+)$", row["job"])
+        if seed_match:
+            seed_tag = f"_seed{seed_match.group(1)}"
         for image in sorted((sweep_dir / row["job"]).glob("*.png")):
             suffix = image.stem.split("_")[-1]
-            shutil.copy2(image, views_dir / f"{row['pair']}_{row['arm']}_{row['config']}_{suffix}.png")
+            shutil.copy2(
+                image,
+                views_dir
+                / f"{row['pair']}_{row['arm']}_{row['config']}{seed_tag}_{suffix}.png",
+            )
             view_count += 1
 
     # --- headline: means per (config, arm)

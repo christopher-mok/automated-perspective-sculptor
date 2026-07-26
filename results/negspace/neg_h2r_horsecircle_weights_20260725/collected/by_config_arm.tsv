@@ -1,0 +1,4 @@
+config	arm	n	final_mean_iou	best_mean_iou	final_mean_tversky	best_mean_tversky	final_patches	max_patches	final_mean_spill	final_mean_coverage	srd_total_deletes	final_step	total_seconds
+aw0p1875	hinge2_restart	1	0.922777	0.930548	0.950101	0.961453	35	38	0.053158	0.969332	7	1625	18709.3
+aw0p073	hinge2_restart	1	0.914977	0.932579	0.98	0.980869	13	39	0.012813	0.92628	29	3400	37589.4
+nonorm1p25	hinge2_restart	1	0.919434	0.931821	0.966033	0.969321	14	36	0.030957	0.945989	25	2550	24038.9

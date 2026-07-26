@@ -1,0 +1,4 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+4284409	neg_horse_circle_hinge2_restart_nonorm1p25	horse_circle	hinge2_restart	nonorm1p25	2	2.5	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2r_horsecircle_weights_20260725/neg_horse_circle_hinge2_restart_nonorm1p25
+4284410	neg_horse_circle_hinge2_restart_aw0p073	horse_circle	hinge2_restart	aw0p073	0.306	4.194	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2r_horsecircle_weights_20260725/neg_horse_circle_hinge2_restart_aw0p073
+4284411	neg_horse_circle_hinge2_restart_aw0p1875	horse_circle	hinge2_restart	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2r_horsecircle_weights_20260725/neg_horse_circle_hinge2_restart_aw0p1875

@@ -1,0 +1,11 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+4288028	neg_water_fire_hinge2_aw0p1875_seed0	water_fire	hinge2	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2_wf_consistency_20260725/neg_water_fire_hinge2_aw0p1875_seed0
+4288029	neg_water_fire_hinge2_aw0p1875_seed1	water_fire	hinge2	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2_wf_consistency_20260725/neg_water_fire_hinge2_aw0p1875_seed1
+4288030	neg_water_fire_hinge2_aw0p1875_seed2	water_fire	hinge2	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2_wf_consistency_20260725/neg_water_fire_hinge2_aw0p1875_seed2
+4288031	neg_water_fire_hinge2_aw0p1875_seed3	water_fire	hinge2	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2_wf_consistency_20260725/neg_water_fire_hinge2_aw0p1875_seed3
+4288032	neg_water_fire_hinge2_aw0p1875_seed4	water_fire	hinge2	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2_wf_consistency_20260725/neg_water_fire_hinge2_aw0p1875_seed4
+4288033	neg_water_fire_hinge2_aw0p1875_seed5	water_fire	hinge2	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2_wf_consistency_20260725/neg_water_fire_hinge2_aw0p1875_seed5
+4288034	neg_water_fire_hinge2_aw0p1875_seed6	water_fire	hinge2	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2_wf_consistency_20260725/neg_water_fire_hinge2_aw0p1875_seed6
+4288035	neg_water_fire_hinge2_aw0p1875_seed7	water_fire	hinge2	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2_wf_consistency_20260725/neg_water_fire_hinge2_aw0p1875_seed7
+4288036	neg_water_fire_hinge2_aw0p1875_seed8	water_fire	hinge2	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2_wf_consistency_20260725/neg_water_fire_hinge2_aw0p1875_seed8
+4288037	neg_water_fire_hinge2_aw0p1875_seed9	water_fire	hinge2	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_h2_wf_consistency_20260725/neg_water_fire_hinge2_aw0p1875_seed9
