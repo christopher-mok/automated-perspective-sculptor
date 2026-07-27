@@ -1,0 +1,2 @@
+pair	group	n	final_loss	final_mean_iou	best_mean_iou	best_loss	final_patches	final_overlap	srd_total_adds	total_seconds
+teapot_droplets	basic	1	0.136122	0.777457	0.784009	0.12888	32	4.505e-05	-	3253.36

@@ -1,0 +1,3 @@
+pair	group	n	final_loss	final_mean_iou	best_mean_iou	best_loss	final_patches	final_overlap	srd_total_adds	total_seconds
+horse_circle	basic	1	0.359342	0.798487	0.837337	0.188621	13	0.00015987	-	1032
+robot_man	basic	1	0.077227	0.893502	0.898426	0.075974	11	2.734e-05	-	2773.34

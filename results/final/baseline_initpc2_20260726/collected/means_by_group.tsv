@@ -1,0 +1,5 @@
+pair	group	n	final_loss	final_mean_iou	best_mean_iou	best_loss	final_patches	final_overlap	srd_total_adds	total_seconds
+cat_face_bass	basic	1	0.108318	0.912363	0.915505	0.102197	30	7.948e-05	-	3505.79
+robot_man	basic	1	0.09358	0.879255	0.884795	0.082651	26	3.012e-05	-	2078.26
+sun_moon	basic	1	0.088324	0.919957	0.923973	0.076314	35	0.00021133	-	3499.86
+water_fire	basic	1	0.039937	0.937351	0.95272	0.031564	24	8.303e-05	-	2969.57

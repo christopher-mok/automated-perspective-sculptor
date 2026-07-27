@@ -1,0 +1,5 @@
+job_id	job_name	pair	arm	overlap_mode	seed	n_patches	output_dir
+4302167	final_sun_moon_basic_seed0	sun_moon	basic	planar	0	35	/oscar/home/cjmok/aps-hinge2/results/final/baseline_initpc2_20260726/final_sun_moon_basic_seed0
+4302168	final_cat_face_bass_basic_seed0	cat_face_bass	basic	planar	0	30	/oscar/home/cjmok/aps-hinge2/results/final/baseline_initpc2_20260726/final_cat_face_bass_basic_seed0
+4302169	final_water_fire_basic_seed0	water_fire	basic	planar	0	24	/oscar/home/cjmok/aps-hinge2/results/final/baseline_initpc2_20260726/final_water_fire_basic_seed0
+4302170	final_robot_man_basic_seed0	robot_man	basic	planar	0	26	/oscar/home/cjmok/aps-hinge2/results/final/baseline_initpc2_20260726/final_robot_man_basic_seed0

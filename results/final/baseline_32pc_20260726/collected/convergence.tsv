@@ -1,0 +1,11 @@
+pair	group	n	milestone	mean_steps	mean_seconds	reached
+teapot_droplets	basic	1	iou_0p50	75	126.935	1/1
+teapot_droplets	basic	1	iou_0p60	125	210.263	1/1
+teapot_droplets	basic	1	iou_0p70	325	552.499	1/1
+teapot_droplets	basic	1	iou_0p75	550	925.959	1/1
+teapot_droplets	basic	1	iou_0p80	-	-	0/1
+teapot_droplets	basic	1	iou_0p85	-	-	0/1
+teapot_droplets	basic	1	iou_0p90	-	-	0/1
+teapot_droplets	basic	1	rel_90pct	350	594.556	1/1
+teapot_droplets	basic	1	rel_95pct	525	885.019	1/1
+teapot_droplets	basic	1	rel_99pct	1300	2151.55	1/1
