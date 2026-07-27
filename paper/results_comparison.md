@@ -42,3 +42,26 @@ thin appendages.
 Panel ratio from totals: 140 / 65 = 2.15x (reported as 2.2x).
 Mean of per-pair ratios is 2.31x -- avoid, it overweights cat_face_bass.
 Reduction: 53.6% of panels removed.
+
+---
+
+# Baseline comparison
+
+Reordered per Milin's note: baseline results stated first, ours second.
+
+---
+
+We compare against a baseline that removes the discrete rewrites entirely --
+SRD in full -- and optimizes the same objective over a fixed assembly of $N$
+panels, where $N$ is the panel count our method converges to on that pair.
+Given that budget, the baseline reaches a mean IoU of 0.811 across the five
+pairs (Figure 7). It performs best on pairs of simple, compact shapes, where
+a fixed assembly is already close to sufficient, and worst on complex
+targets, particularly those with disjoint components, which a fixed panel set
+cannot rearrange itself to cover. Our method reaches 0.928 on the same pairs,
+an improvement of 11.7 IoU points: it raises mean IoU on all five and reaches
+a lower final loss on every one, with the margin widest precisely where the
+baseline struggles and narrowest on the simpler pairs. Figure 8 shows the
+effect on a complex example, where the baseline, matched to the panel count
+of our unconstrained variant, still fails to capture key features and ends at
+a lower IoU.
