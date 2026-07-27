@@ -1,0 +1,3 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+4305251	neg_robot_man_hinge2_aw0p1875	robot_man	hinge2	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_noswept_hinge2_robotman_20260726/neg_robot_man_hinge2_aw0p1875
+4305252	neg_robot_man_noswept_hinge2_aw0p1875	robot_man	noswept_hinge2	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_noswept_hinge2_robotman_20260726/neg_robot_man_noswept_hinge2_aw0p1875
