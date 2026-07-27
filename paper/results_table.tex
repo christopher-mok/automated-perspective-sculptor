@@ -1,37 +1,21 @@
-% Two-image results table: target masks vs. optimized silhouettes.
-% Requires \usepackage{graphicx} and \usepackage{booktabs}.
+% One-row, two-cell results figure: the two views of a single arrangement.
+% Requires \usepackage{graphicx}.
 %
 % Image sources in this repo:
-%   images/sun.png                                  -> figures/sun.png
-%   images/moon.png                                 -> figures/moon.png
 %   imports/exports/rerender_earcut/sun1_view1.png  -> figures/sun1_view1.png
 %   imports/exports/rerender_earcut/sun1_view2.png  -> figures/sun1_view2.png
-%
-% Cells are sized by HEIGHT, not width: the targets are square (2048x2048)
-% and the renders are 4:3 (1024x768), so a shared width would leave the
-% two rows visually mismatched.
 
 \begin{figure}[t]
   \centering
-  \setlength{\tabcolsep}{4pt}
-  \renewcommand{\arraystretch}{1.2}
-  \begin{tabular}{@{}l cc@{}}
-    \toprule
-     & View 1 & View 2 \\
-    \midrule
-    Target &
-      \includegraphics[height=2.7cm]{figures/sun.png} &
-      \includegraphics[height=2.7cm]{figures/moon.png} \\
-    Ours &
-      \includegraphics[height=2.7cm]{figures/sun1_view1.png} &
-      \includegraphics[height=2.7cm]{figures/sun1_view2.png} \\
-    \bottomrule
+  \setlength{\tabcolsep}{6pt}
+  \begin{tabular}{@{}cc@{}}
+    \includegraphics[height=3.2cm]{figures/sun1_view1.png} &
+    \includegraphics[height=3.2cm]{figures/sun1_view2.png} \\
   \end{tabular}
   \caption{%
-    A single arrangement of 35 B\'ezier panels, rendered from both cameras.
-    Top row: the binary target masks supplied as input. Bottom row: the
-    silhouettes the optimized arrangement casts into each view. The same
-    pieces produce both images; neither view is composited or edited.
+    One arrangement of 35 B\'ezier panels, rendered from both cameras: a sun
+    from view 1 (left) and a crescent moon from view 2 (right). The same
+    pieces produce both silhouettes; neither view is composited or edited.
   }
   \label{fig:sun-moon}
 \end{figure}
