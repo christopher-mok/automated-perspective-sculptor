@@ -138,6 +138,34 @@ CONFIGS: dict[str, dict] = {
         "silhouette": WEIGHT_SUM, "negative_space": 0.0,
         "area_normalized": True, "label": "area-norm silhouette only (neg space 0)",
     },
+    "nonormsilonly": {
+        # The non-normalized twin of silonly: the whole view loss is one term,
+        # mean (alpha - mask)^2 over the entire frame, against a binary mask.
+        # Nothing else is priced.
+        #
+        # Despite sharing silonly's 4.5 / 0 weights this is not the same
+        # experiment, and it should not reproduce silonly's cliff. The
+        # normalized silhouette term is multiplied by mask, so it only sees the
+        # foreground and zeroing negative space leaves spill entirely free --
+        # hence coverage 1.0000 and spill up to 0.91. Non-normalized, the mean
+        # runs over every pixel and mask = 0 in the background, so the term is
+        # alpha^2 there: it already carries a spill penalty and cannot be
+        # switched off by the zero.
+        #
+        # By the same decomposition used for aw0p073,
+        #     L_sil_nonnorm = f * L_sil_norm + (1 - f) * L_negspace,
+        # so 4.5 / 0 here is equivalent to normalized (4.5f, 4.5(1-f)) -- still
+        # overwhelmingly negative-space weighted. What makes it worth running is
+        # that f is a property of the pair, not of the config: at the measured
+        # f = 0.1263 for water_fire this is an effective ratio of 0.145, and at
+        # f = 0.1797 for sun_moon it is 0.219. One config, a different effective
+        # ratio per pair. That drift is exactly what area normalization was
+        # introduced to remove, so this measures what the simplest possible view
+        # loss costs by leaving it in.
+        "silhouette": WEIGHT_SUM, "negative_space": 0.0,
+        "area_normalized": False,
+        "label": "non-normalized silhouette only (whole-frame binary MSE)",
+    },
     "awflip": {
         # aw0p073 with its two weights swapped: the most negative-space-leaning
         # normalized config turned into the most silhouette-leaning one, at the
@@ -200,6 +228,29 @@ ARM_SETTINGS: dict[str, dict] = {
         # against "srd".
         "base_arm": "srd_no_swept", "count_objective": False,
         "conflict_restart": True,
+    },
+    "basic": {
+        # No SRD at all: the piece count is whatever --n-patches starts it at
+        # and stays there. Here so a baseline can be run through this driver
+        # rather than submit_final.py, which has no --area-normalized-view-loss
+        # and so cannot put a baseline on the same loss as the srd/hinge2 arms.
+        # run_final's _srd_config returns None for arm basic, so the SRD flags
+        # this driver always passes are parsed and ignored.
+        "base_arm": "basic", "count_objective": False,
+    },
+    "noswept_hinge2": {
+        # The swept-volume-additions ablation under the fit-then-shed count
+        # objective, no restart -- so it pairs against "hinge2" exactly as
+        # "noswept" pairs against "srd".
+        #
+        # The question it answers is whether swept-volume guidance still earns
+        # its place once the piece count is constrained. "noswept" showed what
+        # unguided additions cost when nothing bounds the count, but hinge2
+        # already limits how many pieces exist, so a run that cannot aim its
+        # additions has fewer of them to waste. If the ablation gap closes here
+        # relative to srd vs noswept, the guidance was largely buying what the
+        # count objective buys anyway.
+        "base_arm": "srd_no_swept", "count_objective": True,
     },
     "hinge2_restart_importnet": {
         "base_arm": "srd", "count_objective": True,

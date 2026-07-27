@@ -58,6 +58,15 @@ IMAGE_PAIRS: dict[str, tuple[str, str]] = {
     "dancer_guitar": ("dancer.png", "guitar.png"),
     "dance_argument": ("dance.png", "argument.png"),
     "robot_man": ("robot.png", "man.png"),
+    # Second batch of targets. axe and dance each appear in two pairs, so the
+    # same silhouette is asked to share geometry with two different partners
+    # and the pairs are not independent of each other.
+    "tshirt_pants": ("tshirt.png", "pants.png"),
+    "axe_shield": ("axe.png", "shield.png"),
+    "dance_sitting": ("dance.png", "sitting.png"),
+    "happy_sad": ("happy.png", "sad.png"),
+    "axe_tree": ("axe.png", "tree.png"),
+    "guitar_dance": ("guitar.png", "dance.png"),
 }
 
 # Run setting -> extra run_ablation.py flags.
