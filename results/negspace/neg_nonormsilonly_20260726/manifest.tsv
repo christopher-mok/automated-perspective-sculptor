@@ -1,0 +1,4 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+4301868	neg_cat_face_bass_srd_nonormsilonly	cat_face_bass	srd	nonormsilonly	4.5	0	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_nonormsilonly_20260726/neg_cat_face_bass_srd_nonormsilonly
+4301869	neg_sun_moon_srd_nonormsilonly	sun_moon	srd	nonormsilonly	4.5	0	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_nonormsilonly_20260726/neg_sun_moon_srd_nonormsilonly
+4301870	neg_water_fire_srd_nonormsilonly	water_fire	srd	nonormsilonly	4.5	0	False	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_nonormsilonly_20260726/neg_water_fire_srd_nonormsilonly
