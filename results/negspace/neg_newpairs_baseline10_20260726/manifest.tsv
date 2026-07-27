@@ -1,0 +1,7 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+4302285	neg_tshirt_pants_basic_aw0p1875	tshirt_pants	basic	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_newpairs_baseline10_20260726/neg_tshirt_pants_basic_aw0p1875
+4302286	neg_axe_shield_basic_aw0p1875	axe_shield	basic	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_newpairs_baseline10_20260726/neg_axe_shield_basic_aw0p1875
+4302287	neg_dance_sitting_basic_aw0p1875	dance_sitting	basic	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_newpairs_baseline10_20260726/neg_dance_sitting_basic_aw0p1875
+4302288	neg_happy_sad_basic_aw0p1875	happy_sad	basic	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_newpairs_baseline10_20260726/neg_happy_sad_basic_aw0p1875
+4302289	neg_axe_tree_basic_aw0p1875	axe_tree	basic	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_newpairs_baseline10_20260726/neg_axe_tree_basic_aw0p1875
+4302290	neg_guitar_dance_basic_aw0p1875	guitar_dance	basic	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/aps-hinge2/results/negspace/neg_newpairs_baseline10_20260726/neg_guitar_dance_basic_aw0p1875
