@@ -137,6 +137,65 @@ def negative_space_loss(
     return (alpha.square() * background).sum() / (background.sum() + 1e-8)
 
 
+def soft_iou_loss(
+    rendered: torch.Tensor,
+    target_mask: torch.Tensor,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Soft IoU (Jaccard) loss between rendered alpha and a binary target mask.
+
+    ``1 - (intersection + eps) / (union + eps)``, with intersection =
+    sum(alpha * mask) and union = sum(alpha) + sum(mask) - intersection taken
+    over the whole frame. Bounded in [0, 1]; a false positive (spill) and a
+    false negative (miss) both cost the shared union term directly, so unlike
+    ``silhouette_loss`` + ``negative_space_loss`` there is no separate weight
+    ratio between them.
+    """
+    if rendered.shape[-1] >= 4:
+        alpha = rendered[..., 3:4]
+    else:
+        alpha = rendered[..., :3].amax(dim=-1, keepdim=True)
+    mask = _match_size(alpha, target_mask.to(alpha.device))
+    if mask.dim() == 2:
+        mask = mask.unsqueeze(-1)
+    mask = mask.clamp(0.0, 1.0)
+    intersection = (alpha * mask).sum()
+    union = alpha.sum() + mask.sum() - intersection
+    return 1.0 - (intersection + eps) / (union + eps)
+
+
+def tversky_loss(
+    rendered: torch.Tensor,
+    target_mask: torch.Tensor,
+    alpha: float = 0.5,
+    beta: float = 0.5,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """Tversky loss: generalizes soft IoU/Dice with independent FP/FN weights.
+
+    tp = sum(alpha_render * mask), fp = sum(alpha_render * (1 - mask)),
+    fn = sum((1 - alpha_render) * mask).
+    ``loss = 1 - (tp + eps) / (tp + alpha*fp + beta*fn + eps)``.
+
+    ``alpha`` weights false positives (rendered coverage outside the target --
+    spill); ``beta`` weights false negatives (target area left uncovered --
+    miss). alpha == beta == 0.5 is the Dice loss; alpha == beta == 1 is
+    ``soft_iou_loss``.
+    """
+    if rendered.shape[-1] >= 4:
+        r = rendered[..., 3:4]
+    else:
+        r = rendered[..., :3].amax(dim=-1, keepdim=True)
+    mask = _match_size(r, target_mask.to(r.device))
+    if mask.dim() == 2:
+        mask = mask.unsqueeze(-1)
+    mask = mask.clamp(0.0, 1.0)
+    tp = (r * mask).sum()
+    fp = (r * (1.0 - mask)).sum()
+    fn = ((1.0 - r) * mask).sum()
+    return 1.0 - (tp + eps) / (tp + alpha * fp + beta * fn + eps)
+
+
 def masked_rgb_loss(
     rendered: torch.Tensor,
     target: torch.Tensor,

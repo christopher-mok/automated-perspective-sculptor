@@ -26,7 +26,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from core.loss import masked_rgb_loss, negative_space_loss, sds_loss, silhouette_loss
+from core.loss import (
+    masked_rgb_loss,
+    negative_space_loss,
+    sds_loss,
+    silhouette_loss,
+    soft_iou_loss,
+    tversky_loss,
+)
 from core.overlap import OVERLAP_MODES, overlap_loss, planar_overlap_repair
 from core.renderer import DiffRenderer
 from optimizer.srd import StochasticRewriteDescent
@@ -356,6 +363,13 @@ class SceneOptimizer:
         # already divided by background area, so the two are on one scale and
         # their ratio means the same thing for every target shape.
         area_normalized_view_loss: bool = False,
+        # None/"mse" keeps the weighted silhouette + negative-space sum above;
+        # "softiou" or "tversky" replaces it with one bounded region loss and
+        # silhouette_weight/negative_space_weight/area_normalized_view_loss are
+        # then ignored. See SceneOptimizer._view_terms.
+        region_loss: str | None = None,
+        tversky_alpha: float = 0.5,
+        tversky_beta: float = 0.5,
         #overlap_weight: float = 0.05,
         overlap_weight: float = 0.7,
         overlap_margin: float = 0.005,
@@ -386,6 +400,13 @@ class SceneOptimizer:
         self.silhouette_weight = silhouette_weight
         self.negative_space_weight = negative_space_weight
         self.area_normalized_view_loss = bool(area_normalized_view_loss)
+        if region_loss not in (None, "mse", "softiou", "tversky"):
+            raise ValueError(
+                f"Unknown region_loss {region_loss!r}; expected None/'mse'/'softiou'/'tversky'."
+            )
+        self.region_loss = None if region_loss == "mse" else region_loss
+        self.tversky_alpha = float(tversky_alpha)
+        self.tversky_beta = float(tversky_beta)
         self.overlap_weight = overlap_weight
         self.overlap_margin = overlap_margin
         if overlap_mode not in OVERLAP_MODES:
@@ -644,6 +665,28 @@ class SceneOptimizer:
         """Intersection over Union between the rendered and target silhouettes."""
         return self._silhouette_stats(render, target_mask)["iou"]
 
+    def _view_terms(
+        self, render: torch.Tensor, target_mask: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """One view's silhouette/negative-space contribution to the loss.
+
+        Returns (weighted_view_loss, silhouette_component, negative_space_component).
+        Under "softiou"/"tversky" the region loss is one bounded number with no
+        weight ratio, so it is reported as both components collapsing to it and
+        zero respectively -- `negative_space_weighted` in the logged metrics is
+        then correctly zero rather than meaningless.
+        """
+        if self.region_loss == "softiou":
+            region = soft_iou_loss(render, target_mask)
+            return region, region, torch.zeros((), device=region.device)
+        if self.region_loss == "tversky":
+            region = tversky_loss(render, target_mask, self.tversky_alpha, self.tversky_beta)
+            return region, region, torch.zeros((), device=region.device)
+        silhouette = silhouette_loss(render, target_mask, self.area_normalized_view_loss)
+        negative_space = negative_space_loss(render, target_mask)
+        weighted = self.silhouette_weight * silhouette + self.negative_space_weight * negative_space
+        return weighted, silhouette, negative_space
+
     def _loss_from_renders(
         self,
         render1: torch.Tensor,
@@ -654,15 +697,10 @@ class SceneOptimizer:
             torch.zeros((), device=render1.device)
             if self.target1_is_mask else masked_rgb_loss(render1, self.target1, self.target1_mask)
         )
-        loss1_silhouette = silhouette_loss(
-            render1, self.target1_mask, self.area_normalized_view_loss
+        view1_weighted, loss1_silhouette, loss1_negative_space = self._view_terms(
+            render1, self.target1_mask
         )
-        loss1_negative_space = negative_space_loss(render1, self.target1_mask)
-        loss1 = (
-            loss1_rgb
-            + self.silhouette_weight * loss1_silhouette
-            + self.negative_space_weight * loss1_negative_space
-        )
+        loss1 = loss1_rgb + view1_weighted
         loss2 = torch.zeros((), device=loss1.device)
         loss2_silhouette = torch.zeros((), device=loss1.device)
         loss2_negative_space = torch.zeros((), device=loss1.device)
@@ -679,15 +717,10 @@ class SceneOptimizer:
                 torch.zeros((), device=render2.device)
                 if self.target2_is_mask else masked_rgb_loss(render2, self.target2, self.target2_mask)
             )
-            loss2_silhouette = silhouette_loss(
-                render2, self.target2_mask, self.area_normalized_view_loss
+            view2_weighted, loss2_silhouette, loss2_negative_space = self._view_terms(
+                render2, self.target2_mask
             )
-            loss2_negative_space = negative_space_loss(render2, self.target2_mask)
-            loss2 = (
-                loss2_rgb
-                + self.silhouette_weight * loss2_silhouette
-                + self.negative_space_weight * loss2_negative_space
-            )
+            loss2 = loss2_rgb + view2_weighted
 
         if patches:
             overlap = patch_overlap_loss(patches, self.overlap_margin, self.overlap_mode)

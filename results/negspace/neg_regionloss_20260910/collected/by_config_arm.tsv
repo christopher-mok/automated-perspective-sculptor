@@ -1,0 +1,5 @@
+config	arm	n	final_mean_iou	best_mean_iou	final_mean_tversky	best_mean_tversky	final_patches	max_patches	final_mean_spill	final_mean_coverage	srd_total_deletes	final_step	total_seconds
+softiou	srd	5	0.914802	0.92099	0.939084	0.946133	18.6	21.6	0.0677272	0.974495	3	1995	9866.88
+tversky_r5p33	srd	5	0.89083	0.89493	0.962633	0.967108	17.2	20	0.0301274	0.91621	2.8	2105	7909.83
+tversky_sym	srd	5	0.910482	0.913901	0.941083	0.94451	17.8	20.6	0.0636252	0.966642	2.8	2270	8543.4
+tversky_r2	srd	5	0.89513	0.903435	0.945946	0.955587	17.6	20.4	0.0530704	0.939984	2.8	1920	7581.81

@@ -509,6 +509,28 @@ def _parse_args() -> argparse.Namespace:
              "own region, so one weight ratio means the same thing for "
              "targets of different shape and size.",
     )
+    weights.add_argument(
+        "--view-loss",
+        choices=("mse", "softiou", "tversky"),
+        default="mse",
+        help="'mse' is the weighted silhouette + negative-space sum above "
+             "(the only mode --silhouette-weight/--negative-space-weight/"
+             "--area-normalized-view-loss affect). 'softiou' and 'tversky' "
+             "replace it with one bounded [0,1] region loss and ignore those "
+             "three flags.",
+    )
+    weights.add_argument(
+        "--tversky-alpha",
+        type=float,
+        default=0.5,
+        help="Tversky false-positive (spill) weight; only used by --view-loss tversky.",
+    )
+    weights.add_argument(
+        "--tversky-beta",
+        type=float,
+        default=0.5,
+        help="Tversky false-negative (miss) weight; only used by --view-loss tversky.",
+    )
 
     overlap = parser.add_argument_group("overlap test")
     overlap.add_argument(
@@ -784,6 +806,9 @@ def _write_report(
         f"negative_space_weight={args.negative_space_weight:.6g}",
         f"weight_ratio={ratio:.6g}",
         f"area_normalized_view_loss={args.area_normalized_view_loss}",
+        f"view_loss={args.view_loss}",
+        f"tversky_alpha={args.tversky_alpha:.6g}",
+        f"tversky_beta={args.tversky_beta:.6g}",
         f"overlap_mode={args.overlap_mode}",
         f"overlap_repair={args.overlap_repair}",
         f"overlap_repair_interval={args.overlap_repair_interval}",
@@ -965,6 +990,9 @@ def main() -> None:
         silhouette_weight=args.silhouette_weight,
         negative_space_weight=args.negative_space_weight,
         area_normalized_view_loss=args.area_normalized_view_loss,
+        region_loss=args.view_loss,
+        tversky_alpha=args.tversky_alpha,
+        tversky_beta=args.tversky_beta,
         overlap_mode=args.overlap_mode,
         overlap_repair=args.overlap_repair,
         overlap_repair_interval=args.overlap_repair_interval,
@@ -975,8 +1003,14 @@ def main() -> None:
     print(
         f"[Run] arm={args.arm}, seed={args.seed}, steps={args.steps}, "
         f"overlap={args.overlap_mode} (repair={args.overlap_repair}), "
-        f"weights={args.silhouette_weight:g}/{args.negative_space_weight:g}, "
-        f"setup={setup_seconds:.1f}s",
+        f"view_loss={args.view_loss}"
+        + (
+            f" alpha={args.tversky_alpha:g}/beta={args.tversky_beta:g}"
+            if args.view_loss == "tversky"
+            else f" weights={args.silhouette_weight:g}/{args.negative_space_weight:g}"
+            if args.view_loss == "mse" else ""
+        )
+        + f", setup={setup_seconds:.1f}s",
         flush=True,
     )
 

@@ -180,8 +180,34 @@ CONFIGS: dict[str, dict] = {
         "silhouette": 2.0, "negative_space": 2.5,
         "area_normalized": False, "label": "non-normalized neg:sil 1.25:1",
     },
+    # Region-based (--view-loss) configs. These replace the weighted
+    # silhouette + negative-space sum with one bounded [0, 1] loss over the
+    # whole frame, so they carry no silhouette/negative_space/area_normalized
+    # keys -- _build_jobs and the printout below both branch on "view_loss"
+    # being present rather than defaulting it to "mse" in every entry.
+    "softiou": {
+        "view_loss": "softiou",
+        "label": "soft IoU (Jaccard) region loss, no weight ratio",
+    },
+    "tversky_r5p33": {
+        # alpha/beta = 5.33 at alpha+beta=1, matching aw0p1875's asymmetry
+        # (silhouette:negative_space = 0.1875, i.e. negative space penalized
+        # 5.33x harder than silhouette there too).
+        "view_loss": "tversky", "tversky_alpha": 0.842, "tversky_beta": 0.158,
+        "label": "Tversky alpha/beta=5.33 (matches aw0p1875 asymmetry)",
+    },
+    "tversky_sym": {
+        # Dice: false positives and false negatives cost the same.
+        "view_loss": "tversky", "tversky_alpha": 0.5, "tversky_beta": 0.5,
+        "label": "Tversky alpha=beta=0.5 (Dice, symmetric control)",
+    },
+    "tversky_r2": {
+        "view_loss": "tversky", "tversky_alpha": 0.667, "tversky_beta": 0.333,
+        "label": "Tversky alpha/beta=2",
+    },
 }
 CONFIG_TAGS = tuple(CONFIGS)
+REGION_LOSS_CONFIGS = frozenset(tag for tag, cfg in CONFIGS.items() if "view_loss" in cfg)
 
 # arm -> the switch that distinguishes it. srd/hinge2 use uniform deletion (no
 # importance); importnet biases the deletion *offer* by the net damage proxy.
@@ -228,6 +254,29 @@ ARM_SETTINGS: dict[str, dict] = {
         # against "srd".
         "base_arm": "srd_no_swept", "count_objective": False,
         "conflict_restart": True,
+    },
+    "noadd": {
+        # Operation-family ablation: add_weight forced to 0, so the per-step
+        # candidate budget (default 0.35/0.15/0.50 add/delete/split) renormalizes
+        # over delete and split alone (0/0.15/0.50 -> 0/0.231/0.769). SRD can
+        # still grow the model by splitting an existing piece in two, but it can
+        # never place a wholly new one -- including from the swept volume, since
+        # swept-volume sampling only ever fires inside an add candidate. A/B
+        # partner of the "srd" arm.
+        "base_arm": "srd", "count_objective": False,
+        "add_weight": 0.0,
+    },
+    "noaddsplit": {
+        # Operation-family ablation: both add_weight and split_weight forced to
+        # 0, so every candidate the per-step budget draws is a deletion (the
+        # min_patches floor in optimizer/srd.py still forces add candidates if
+        # the model ever shrinks to 4 pieces, but that floor is never reached
+        # starting from --n-patches 20 under uniform deletion). SRD is reduced
+        # to pruning the initial 20 pieces -- no growth mechanism at all. A/B
+        # partner of the "srd" and "noadd" arms, isolating what splitting alone
+        # contributes once adds are already gone.
+        "base_arm": "srd", "count_objective": False,
+        "add_weight": 0.0, "split_weight": 0.0,
     },
     "basic": {
         # No SRD at all: the piece count is whatever --n-patches starts it at
@@ -345,6 +394,11 @@ def _parse_args() -> argparse.Namespace:
                              "must beat the loss by more than this to be accepted, "
                              "and a delete is rebated it. 0 scores rewrites on the "
                              "raw loss change, which is what lets adds land.")
+    parser.add_argument("--lr", type=float, default=3.5e-3,
+                        help="Optimizer learning rate, passed through to run_final.py. "
+                             "The MSE-based configs' weights sum to 4.5; the region-based "
+                             "configs (softiou/tversky*) are bounded in [0,1] and may need "
+                             "a different LR -- see the LR pre-check in the region-loss docs.")
     parser.add_argument("--render-scale", type=int, default=4)
     parser.add_argument("--max-hours", type=float, default=23.0)
     parser.add_argument("--device", default="cuda")
@@ -412,15 +466,31 @@ def _build_jobs(args: argparse.Namespace, sweep_dir: Path) -> list[dict]:
                         "--srd-candidates", str(args.srd_candidates),
                         "--srd-min-patch-area", f"{args.srd_min_patch_area:g}",
                         "--lambda-count", f"{args.lambda_count:g}",
-                        "--silhouette-weight", f"{cfg['silhouette']:g}",
-                        "--negative-space-weight", f"{cfg['negative_space']:g}",
+                        "--lr", f"{args.lr:g}",
                         "--render-scale", str(args.render_scale),
                         "--max-hours", str(args.max_hours),
                         "--device", args.device,
                         "--output-dir", str(output_dir),
                     ]
-                    if cfg["area_normalized"]:
-                        command += ["--area-normalized-view-loss"]
+                    view_loss = cfg.get("view_loss", "mse")
+                    if view_loss == "mse":
+                        command += [
+                            "--silhouette-weight", f"{cfg['silhouette']:g}",
+                            "--negative-space-weight", f"{cfg['negative_space']:g}",
+                        ]
+                        if cfg["area_normalized"]:
+                            command += ["--area-normalized-view-loss"]
+                    else:
+                        command += ["--view-loss", view_loss]
+                        if view_loss == "tversky":
+                            command += [
+                                "--tversky-alpha", f"{cfg['tversky_alpha']:g}",
+                                "--tversky-beta", f"{cfg['tversky_beta']:g}",
+                            ]
+                    for op_weight in ("add_weight", "delete_weight", "split_weight"):
+                        if op_weight in settings:
+                            flag = "--" + op_weight.replace("_", "-")
+                            command += [flag, f"{settings[op_weight]:g}"]
                     if settings["count_objective"]:
                         command += [
                             "--count-objective",
@@ -441,9 +511,10 @@ def _build_jobs(args: argparse.Namespace, sweep_dir: Path) -> list[dict]:
                     jobs.append({
                         "name": job_name, "pair": pair, "arm": arm,
                         "config": config_tag, "seed": seed,
-                        "silhouette": cfg["silhouette"],
-                        "negative_space": cfg["negative_space"],
-                        "area_normalized": cfg["area_normalized"],
+                        "view_loss": view_loss,
+                        "silhouette": cfg.get("silhouette", 0.0),
+                        "negative_space": cfg.get("negative_space", 0.0),
+                        "area_normalized": cfg.get("area_normalized", False),
                         "output_dir": output_dir, "command": command,
                     })
     return jobs
@@ -473,12 +544,12 @@ def _submit(script_path: Path) -> str:
 
 def _write_manifest(sweep_dir: Path, rows: list[dict]) -> Path:
     manifest_path = sweep_dir / "manifest.tsv"
-    lines = ["job_id\tjob_name\tpair\tarm\tconfig\tsilhouette_weight\t"
+    lines = ["job_id\tjob_name\tpair\tarm\tconfig\tview_loss\tsilhouette_weight\t"
              "negative_space_weight\tarea_normalized\toutput_dir"]
     for row in rows:
         lines.append(
             f"{row.get('job_id', '-')}\t{row['name']}\t{row['pair']}\t{row['arm']}\t"
-            f"{row['config']}\t{row['silhouette']:.6g}\t{row['negative_space']:.6g}\t"
+            f"{row['config']}\t{row['view_loss']}\t{row['silhouette']:.6g}\t{row['negative_space']:.6g}\t"
             f"{row['area_normalized']}\t{row['output_dir']}"
         )
     manifest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -721,10 +792,17 @@ def main() -> None:
           f"min-steps {args.min_steps}, early stop on plateau, ceiling {args.steps}")
     for config_tag in args.configs:
         cfg = CONFIGS[config_tag]
-        norm = "area-normalized" if cfg["area_normalized"] else "NON-normalized"
-        print(f"[Sweep]   {config_tag:<9} silhouette={cfg['silhouette']:.4g} "
-              f"negative_space={cfg['negative_space']:.4g}  ({norm}; {cfg['label']})")
-    print(f"[Sweep] arms: {', '.join(args.arms)}")
+        if config_tag in REGION_LOSS_CONFIGS:
+            extra = (
+                f"alpha={cfg['tversky_alpha']:g} beta={cfg['tversky_beta']:g}"
+                if cfg["view_loss"] == "tversky" else ""
+            )
+            print(f"[Sweep]   {config_tag:<13} view_loss={cfg['view_loss']} {extra}  ({cfg['label']})")
+        else:
+            norm = "area-normalized" if cfg["area_normalized"] else "NON-normalized"
+            print(f"[Sweep]   {config_tag:<13} silhouette={cfg['silhouette']:.4g} "
+                  f"negative_space={cfg['negative_space']:.4g}  ({norm}; {cfg['label']})")
+    print(f"[Sweep] lr={args.lr:g}, arms: {', '.join(args.arms)}")
 
     submitted: list[dict] = []
     for job in jobs:
