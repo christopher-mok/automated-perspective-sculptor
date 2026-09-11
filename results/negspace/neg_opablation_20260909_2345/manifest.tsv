@@ -1,0 +1,16 @@
+job_id	job_name	pair	arm	config	silhouette_weight	negative_space_weight	area_normalized	output_dir
+-	neg_sun_moon_srd_aw0p1875	sun_moon	srd	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_sun_moon_srd_aw0p1875
+-	neg_sun_moon_noadd_aw0p1875	sun_moon	noadd	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_sun_moon_noadd_aw0p1875
+-	neg_sun_moon_noaddsplit_aw0p1875	sun_moon	noaddsplit	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_sun_moon_noaddsplit_aw0p1875
+-	neg_cat_face_bass_srd_aw0p1875	cat_face_bass	srd	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_cat_face_bass_srd_aw0p1875
+-	neg_cat_face_bass_noadd_aw0p1875	cat_face_bass	noadd	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_cat_face_bass_noadd_aw0p1875
+-	neg_cat_face_bass_noaddsplit_aw0p1875	cat_face_bass	noaddsplit	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_cat_face_bass_noaddsplit_aw0p1875
+-	neg_horse_circle_srd_aw0p1875	horse_circle	srd	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_horse_circle_srd_aw0p1875
+-	neg_horse_circle_noadd_aw0p1875	horse_circle	noadd	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_horse_circle_noadd_aw0p1875
+-	neg_horse_circle_noaddsplit_aw0p1875	horse_circle	noaddsplit	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_horse_circle_noaddsplit_aw0p1875
+-	neg_robot_man_srd_aw0p1875	robot_man	srd	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_robot_man_srd_aw0p1875
+-	neg_robot_man_noadd_aw0p1875	robot_man	noadd	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_robot_man_noadd_aw0p1875
+-	neg_robot_man_noaddsplit_aw0p1875	robot_man	noaddsplit	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_robot_man_noaddsplit_aw0p1875
+-	neg_water_fire_srd_aw0p1875	water_fire	srd	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_water_fire_srd_aw0p1875
+-	neg_water_fire_noadd_aw0p1875	water_fire	noadd	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_water_fire_noadd_aw0p1875
+-	neg_water_fire_noaddsplit_aw0p1875	water_fire	noaddsplit	aw0p1875	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_opablation_20260909_2345/neg_water_fire_noaddsplit_aw0p1875

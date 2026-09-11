@@ -6,3 +6,5 @@ logs/
 !experiments/*/logs/
 runs/logs/*
 !runs/logs/.gitkeep
+# per-step render sequences: kept locally, compiled to view*.mp4 for git instead
+results/negspace/*/*/renders/
