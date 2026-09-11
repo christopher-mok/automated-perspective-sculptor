@@ -1,0 +1,11 @@
+job_id	job_name	pair	arm	config	view_loss	silhouette_weight	negative_space_weight	area_normalized	output_dir
+6224827	neg_sun_moon_hinge2_aw0p1875	sun_moon	hinge2	aw0p1875	mse	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_hinge2_norestart_awweights_20260911/neg_sun_moon_hinge2_aw0p1875
+6224828	neg_sun_moon_hinge2_aw0p073	sun_moon	hinge2	aw0p073	mse	0.306	4.194	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_hinge2_norestart_awweights_20260911/neg_sun_moon_hinge2_aw0p073
+6224829	neg_water_fire_hinge2_aw0p1875	water_fire	hinge2	aw0p1875	mse	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_hinge2_norestart_awweights_20260911/neg_water_fire_hinge2_aw0p1875
+6224830	neg_water_fire_hinge2_aw0p073	water_fire	hinge2	aw0p073	mse	0.306	4.194	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_hinge2_norestart_awweights_20260911/neg_water_fire_hinge2_aw0p073
+6224831	neg_cat_face_bass_hinge2_aw0p1875	cat_face_bass	hinge2	aw0p1875	mse	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_hinge2_norestart_awweights_20260911/neg_cat_face_bass_hinge2_aw0p1875
+6224832	neg_cat_face_bass_hinge2_aw0p073	cat_face_bass	hinge2	aw0p073	mse	0.306	4.194	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_hinge2_norestart_awweights_20260911/neg_cat_face_bass_hinge2_aw0p073
+6224833	neg_horse_circle_hinge2_aw0p1875	horse_circle	hinge2	aw0p1875	mse	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_hinge2_norestart_awweights_20260911/neg_horse_circle_hinge2_aw0p1875
+6224834	neg_horse_circle_hinge2_aw0p073	horse_circle	hinge2	aw0p073	mse	0.306	4.194	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_hinge2_norestart_awweights_20260911/neg_horse_circle_hinge2_aw0p073
+6224835	neg_robot_man_hinge2_aw0p1875	robot_man	hinge2	aw0p1875	mse	0.710526	3.78947	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_hinge2_norestart_awweights_20260911/neg_robot_man_hinge2_aw0p1875
+6224836	neg_robot_man_hinge2_aw0p073	robot_man	hinge2	aw0p073	mse	0.306	4.194	True	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_hinge2_norestart_awweights_20260911/neg_robot_man_hinge2_aw0p073
