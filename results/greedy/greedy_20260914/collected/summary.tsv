@@ -1,0 +1,6 @@
+job	pair	n_candidates	final_patches	final_mean_iou	final_view1_iou	final_view2_iou	final_mean_coverage	final_mean_precision	final_mean_spill	total_seconds
+greedy_cat_face_bass	cat_face_bass	6000	262	0.900274	0.895281	0.905268	0.925578	0.970912	0.028201	8.762
+greedy_horse_circle	horse_circle	6000	350	0.891253	0.851829	0.930677	0.917348	0.968104	0.030162	11.064
+greedy_robot_man	robot_man	6000	189	0.904374	0.871013	0.937735	0.927700	0.973367	0.025590	6.098
+greedy_sun_moon	sun_moon	6000	259	0.901611	0.897280	0.905943	0.931130	0.966368	0.032815	8.338
+greedy_water_fire	water_fire	6000	193	0.927096	0.939954	0.914239	0.951914	0.972572	0.026907	6.439

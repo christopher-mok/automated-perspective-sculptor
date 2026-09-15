@@ -399,6 +399,9 @@ def _parse_args() -> argparse.Namespace:
                              "The MSE-based configs' weights sum to 4.5; the region-based "
                              "configs (softiou/tversky*) are bounded in [0,1] and may need "
                              "a different LR -- see the LR pre-check in the region-loss docs.")
+    parser.add_argument("--srd-interval", type=int, default=None,
+                        help="Override run_final's steps-between-SRD-rewrites "
+                             "(default 50). Passed through only when set.")
     parser.add_argument("--render-scale", type=int, default=4)
     parser.add_argument("--max-hours", type=float, default=23.0)
     parser.add_argument("--device", default="cuda")
@@ -472,6 +475,8 @@ def _build_jobs(args: argparse.Namespace, sweep_dir: Path) -> list[dict]:
                         "--device", args.device,
                         "--output-dir", str(output_dir),
                     ]
+                    if args.srd_interval is not None:
+                        command += ["--srd-interval", str(args.srd_interval)]
                     view_loss = cfg.get("view_loss", "mse")
                     if view_loss == "mse":
                         command += [

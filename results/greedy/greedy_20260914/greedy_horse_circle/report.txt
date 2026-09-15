@@ -1,0 +1,35 @@
+Greedy swept-volume square-packing run report
+started=2026-09-14T17:12:56
+arm=greedy
+seed=0
+target1=/oscar/home/cjmok/aps-hinge2/images/horse.png
+target2=/oscar/home/cjmok/aps-hinge2/images/circle.png
+hanging_plane_size=5
+swept_volume_resolution=256
+panel_half_size=0.12
+theta=0.785398
+max_candidates=6000
+view1_weight=0.5
+view2_weight=0.5
+spill_weight=1
+min_gain=1
+max_panels=400
+
+Result:
+  setup_seconds=741.096
+  total_seconds=11.064
+  n_candidates=6000
+  final_patches=350
+  final_mean_iou=0.891253
+  final_view1_iou=0.851829
+  final_view2_iou=0.930677
+  final_mean_coverage=0.917348
+  final_view1_coverage=0.894531
+  final_view2_coverage=0.940164
+  final_mean_precision=0.968104
+  final_view1_precision=0.946933
+  final_view2_precision=0.989274
+  final_mean_spill=0.030162
+  final_view1_spill=0.050130
+  final_view2_spill=0.010193
+

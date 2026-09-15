@@ -1,0 +1,6 @@
+job_id	job_name	pair	output_dir
+6382405	greedy_cat_face_bass	cat_face_bass	/oscar/home/cjmok/aps-hinge2/results/greedy/greedy_20260914/greedy_cat_face_bass
+6382406	greedy_horse_circle	horse_circle	/oscar/home/cjmok/aps-hinge2/results/greedy/greedy_20260914/greedy_horse_circle
+6382407	greedy_robot_man	robot_man	/oscar/home/cjmok/aps-hinge2/results/greedy/greedy_20260914/greedy_robot_man
+6382408	greedy_sun_moon	sun_moon	/oscar/home/cjmok/aps-hinge2/results/greedy/greedy_20260914/greedy_sun_moon
+6382409	greedy_water_fire	water_fire	/oscar/home/cjmok/aps-hinge2/results/greedy/greedy_20260914/greedy_water_fire
