@@ -312,6 +312,40 @@ ARM_SETTINGS: dict[str, dict] = {
         "deletion_importance": True, "deletion_proxy": "net",
         "deletion_temperature": 1.0,
     },
+    "hinge2_restart_importnet_unconstrained": {
+        "base_arm": "srd", "count_objective": True,
+        # hinge2_restart_importnet with the 15-degree camera theta margin
+        # removed (--unconstrained-theta), so SRD's candidate placements are
+        # not restricted to the constrained camera range every other arm in
+        # this driver uses.
+        "conflict_restart": True,
+        "deletion_importance": True, "deletion_proxy": "net",
+        "deletion_temperature": 1.0,
+        "unconstrained_theta": True,
+    },
+    "hinge2_restart_importnet_unconstrained_delonly": {
+        # hinge2_restart_importnet_unconstrained with add_weight and
+        # split_weight forced to 0 -- delete-only from the initial patch
+        # count, same grammar restriction as "noaddsplit" but under the
+        # unconstrained-theta count-objective arm instead of plain SRD.
+        "base_arm": "srd", "count_objective": True,
+        "conflict_restart": True,
+        "deletion_importance": True, "deletion_proxy": "net",
+        "deletion_temperature": 1.0,
+        "unconstrained_theta": True,
+        "add_weight": 0.0, "split_weight": 0.0,
+    },
+    "hinge2_restart_importnet_unconstrained_adddel": {
+        # hinge2_restart_importnet_unconstrained with split_weight forced to
+        # 0 -- add+delete, no split, same grammar restriction as "noadd" but
+        # under the unconstrained-theta count-objective arm.
+        "base_arm": "srd", "count_objective": True,
+        "conflict_restart": True,
+        "deletion_importance": True, "deletion_proxy": "net",
+        "deletion_temperature": 1.0,
+        "unconstrained_theta": True,
+        "split_weight": 0.0,
+    },
 }
 ARMS = tuple(ARM_SETTINGS)
 
