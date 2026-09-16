@@ -1,0 +1,2 @@
+job_id	job_name	pair	arm	config	view_loss	silhouette_weight	negative_space_weight	area_normalized	output_dir
+6430908	neg_teapot_droplets_srd_restart_softiou	teapot_droplets	srd_restart	softiou	softiou	0	0	False	/oscar/home/cjmok/automated-perspective-sculptor/results/negspace/neg_teapot_softiou_restart_c64_np30_20260916/neg_teapot_droplets_srd_restart_softiou

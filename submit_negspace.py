@@ -312,6 +312,29 @@ ARM_SETTINGS: dict[str, dict] = {
         "deletion_importance": True, "deletion_proxy": "net",
         "deletion_temperature": 1.0,
     },
+    "hinge2_restart_importnet_adddel": {
+        # hinge2_restart_importnet (constrained theta) with split_weight
+        # forced to 0 -- add+delete, no split. Reproduces the CLI
+        # --split-weight override the aps-hinge2 clone used for
+        # neg_h2ri_adddel_n20_5pair_20260914 as a named arm, so this
+        # ablation is submittable from main going forward.
+        "base_arm": "srd", "count_objective": True,
+        "conflict_restart": True,
+        "deletion_importance": True, "deletion_proxy": "net",
+        "deletion_temperature": 1.0,
+        "split_weight": 0.0,
+    },
+    "hinge2_restart_importnet_delsplit": {
+        # hinge2_restart_importnet (constrained theta) with add_weight forced
+        # to 0 -- delete+split, no add. The "noadd" ablation ported onto the
+        # count-objective/restart/importnet arm, A/B partner of
+        # "hinge2_restart_importnet_adddel" (which drops split instead).
+        "base_arm": "srd", "count_objective": True,
+        "conflict_restart": True,
+        "deletion_importance": True, "deletion_proxy": "net",
+        "deletion_temperature": 1.0,
+        "add_weight": 0.0,
+    },
     "hinge2_restart_importnet_unconstrained": {
         "base_arm": "srd", "count_objective": True,
         # hinge2_restart_importnet with the 15-degree camera theta margin
