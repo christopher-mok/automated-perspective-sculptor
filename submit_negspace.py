@@ -196,6 +196,16 @@ CONFIGS: dict[str, dict] = {
         "view_loss": "tversky", "tversky_alpha": 0.842, "tversky_beta": 0.158,
         "label": "Tversky alpha/beta=5.33 (matches aw0p1875 asymmetry)",
     },
+    "tversky_r13p7": {
+        # alpha/beta = 13.7 at alpha+beta=1, matching aw0p073's asymmetry
+        # (silhouette:negative_space = 0.073, i.e. negative space penalized
+        # 13.7x harder than silhouette -- the strongest negative-space weighting
+        # tried anywhere in this file, derived from the pre-negspace 2.0/2.5
+        # non-normalized weights; see aw0p073's comment above). More asymmetric
+        # than tversky_r5p33's 5.33x.
+        "view_loss": "tversky", "tversky_alpha": 0.932, "tversky_beta": 0.068,
+        "label": "Tversky alpha/beta=13.7 (matches aw0p073 asymmetry)",
+    },
     "tversky_sym": {
         # Dice: false positives and false negatives cost the same.
         "view_loss": "tversky", "tversky_alpha": 0.5, "tversky_beta": 0.5,
