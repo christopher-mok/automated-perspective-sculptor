@@ -23,6 +23,8 @@ Outputs into ``--output-dir``:
     report.txt    human-readable report, parsed by submit_final.py
     history.csv   step,seconds,loss,mean_iou,view1_iou,view2_iou,patches,
                   overlap,overlap_repaired_pairs
+    pieces.json   final sculpture geometry (piece positions, theta, control
+                  points), in the same format as core.export's pieces.json
 
 Example:
     python run_final.py --target1 images/horse.png --target2 images/circle.png \
@@ -1231,6 +1233,17 @@ def main() -> None:
         pruning_selected,
     )
     print(f"\n[Final] report written to {output_dir / 'report.txt'}", flush=True)
+
+    from core.export import build_export_payload
+    import json
+
+    pieces_payload = build_export_payload(
+        optimizer.patches,
+        hanging_plane_size=args.hanging_plane_size,
+    )
+    pieces_path = output_dir / "pieces.json"
+    pieces_path.write_text(f"{json.dumps(pieces_payload, indent=2)}\n", encoding="utf-8")
+    print(f"[Final] sculpture geometry written to {pieces_path.name}", flush=True)
 
     if not args.no_renders:
         stem = _render_stem(args)

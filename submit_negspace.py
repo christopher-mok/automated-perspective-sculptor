@@ -345,6 +345,18 @@ ARM_SETTINGS: dict[str, dict] = {
         "deletion_temperature": 1.0,
         "add_weight": 0.0,
     },
+    "hinge2_restart_importnet_delonly": {
+        # hinge2_restart_importnet (constrained theta) with both add_weight
+        # and split_weight forced to 0 -- delete-only from the initial patch
+        # count. Third leg of the "adddel"/"delsplit" trio, so all three
+        # single-operation-removed ablations are directly comparable at
+        # whatever --srd-candidates/config the sweep is run with.
+        "base_arm": "srd", "count_objective": True,
+        "conflict_restart": True,
+        "deletion_importance": True, "deletion_proxy": "net",
+        "deletion_temperature": 1.0,
+        "add_weight": 0.0, "split_weight": 0.0,
+    },
     "hinge2_restart_importnet_unconstrained": {
         "base_arm": "srd", "count_objective": True,
         # hinge2_restart_importnet with the 15-degree camera theta margin

@@ -406,6 +406,19 @@ def main() -> None:
         # Save loss history CSV
         csv_path = output_dir / f"trial{trial_number}_loss.csv"
         _save_loss_csv(csv_path, trial_number, loss_history)
+
+        # Save the final sculpture geometry alongside the per-trial renders.
+        from core.export import build_export_payload
+        import json as _json
+
+        pieces_payload = build_export_payload(
+            optimizer.patches,
+            hanging_plane_size=args.hanging_plane_size,
+        )
+        pieces_path = output_dir / f"trial{trial_number}_pieces.json"
+        pieces_path.write_text(
+            f"{_json.dumps(pieces_payload, indent=2)}\n", encoding="utf-8"
+        )
         print(
             f"[Trial {trial_number}] done: loss={metrics['loss']:.6f}, "
             f"time={trial['time_seconds']:.1f}s"
