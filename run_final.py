@@ -96,6 +96,82 @@ def _export_views(
     _save_render(render2.detach().cpu(), view2_path)
 
 
+# Bounding radius of the volume both view frusta share (half-extents about
+# 2.88 x 2.16 x 2.88 at the scene cameras' distance of 8), used to fix the
+# oblique depth range so shading is comparable from frame to frame.
+_OBLIQUE_SCENE_RADIUS = 4.6
+
+
+def _make_oblique_camera(azimuth_deg: float, elevation_deg: float, radius: float):
+    """Third, non-optimized camera looking at the origin.
+
+    Azimuth is measured from view 1 (+z) toward view 2 (+x), so 45 sits midway
+    between the two optimized views; elevation lifts it above the horizon.
+    """
+    from scene.camera import Camera
+    from run_ablation import _SCENE_CAMERA_FOV_DEG
+
+    az, el = np.radians(azimuth_deg), np.radians(elevation_deg)
+    position = radius * np.array(
+        [np.sin(az) * np.cos(el), np.sin(el), np.cos(az) * np.cos(el)],
+        dtype=np.float32,
+    )
+    return Camera(
+        position=position,
+        target=np.zeros(3, dtype=np.float32),
+        fov=_SCENE_CAMERA_FOV_DEG,
+        aspect=4.0 / 3.0,
+        near=0.35,
+        far=radius + 3.0 * _OBLIQUE_SCENE_RADIUS,
+        label="Oblique",
+    )
+
+
+def _export_oblique(optimizer, camera, scale: int, color_path: Path, depth_path: Path) -> None:
+    """Render the assembly from ``camera`` with a depth cue, plus the depth map.
+
+    color_path gets the flat piece colours darkened with distance (near pieces
+    bright, far pieces dim) so the 3-D layout reads in a still frame;
+    depth_path gets the same linear depth as an 8-bit grayscale image (near =
+    white, empty = black). Depth is normalized over a fixed range around the
+    origin, not per frame, so a sequence plays back without flicker.
+    """
+    import torch
+    import nvdiffrast.torch as dr  # type: ignore[import]
+    from PIL import Image
+
+    from core.renderer import _build_geometry, _camera_mvp
+
+    renderer = optimizer.renderer
+    scale = max(1, int(scale))
+    height, width = optimizer.resolution[0] * scale, optimizer.resolution[1] * scale
+    if not optimizer.patches:
+        return
+    with torch.no_grad():
+        renderer._ensure_context()
+        verts_world, tris, colors = _build_geometry(
+            optimizer.patches, renderer.n_per_segment, renderer.device
+        )
+        verts_clip = verts_world @ _camera_mvp(camera, renderer.device).T
+        rast, _ = dr.rasterize(renderer._ctx, verts_clip, tris, (height, width))
+        covered = (rast[..., 3:4] > 0).float()
+        albedo, _ = dr.interpolate(colors, rast, tris)
+        # Clip-space w of a perspective projection is the linear distance along
+        # the view axis, so interpolating it gives metric depth per pixel.
+        depth, _ = dr.interpolate(verts_clip[..., 3:4].contiguous(), rast, tris)
+        distance = float(np.linalg.norm(camera.position - camera.target))
+        near = distance - _OBLIQUE_SCENE_RADIUS
+        nearness = (1.0 - (depth - near) / (2.0 * _OBLIQUE_SCENE_RADIUS)).clamp(0.0, 1.0)
+        shaded = albedo * (0.30 + 0.70 * nearness) * covered
+        shaded = dr.antialias(shaded, rast, verts_clip, tris)
+        alpha = dr.antialias(covered, rast, verts_clip, tris).clamp(0.0, 1.0)
+        rgba = torch.flip(torch.cat([shaded, alpha], dim=-1), dims=[1]).squeeze(0)
+        depth_image = torch.flip(nearness * covered, dims=[1]).squeeze(0).squeeze(-1)
+    _save_render(rgba.detach().cpu(), color_path)
+    depth_array = np.clip(depth_image.cpu().numpy() * 255.0, 0.0, 255.0).astype(np.uint8)
+    Image.fromarray(depth_array, mode="L").save(depth_path)
+
+
 def _render_stem(args: argparse.Namespace) -> str:
     """Self-describing basename for exported views, e.g. horse-circle_srd_lam0p01_seed0.
 
@@ -453,6 +529,28 @@ def _parse_args() -> argparse.Namespace:
              "of times per run: at 1 a snapshot pair costs about one "
              "evaluation render and a few tens of KB.",
     )
+    run.add_argument(
+        "--render-oblique",
+        action="store_true",
+        help="Also render the assembly from a third, oblique camera with a "
+             "depth cue, writing <name>_oblique.png (depth-shaded colour) and "
+             "<name>_oblique_depth.png (grayscale depth, near = white) beside "
+             "every view pair: each --render-every snapshot and the final views.",
+    )
+    run.add_argument("--oblique-azimuth", type=float, default=45.0,
+                     help="Degrees from view 1 toward view 2; 45 is midway.")
+    run.add_argument("--oblique-elevation", type=float, default=30.0,
+                     help="Degrees above the horizon.")
+    run.add_argument("--oblique-radius", type=float, default=16.0,
+                     help="Camera distance; the scene cameras sit at 8, but the "
+                          "shared volume is wider seen along its diagonal.")
+    run.add_argument(
+        "--control-points",
+        type=int,
+        default=5,
+        help="Control points per patch outline (>= 5). Every piece in the run, "
+             "including SRD adds, splits and restarts, uses this count.",
+    )
     run.add_argument("--output-dir", required=True, help="Report/CSV directory.")
 
     stop = parser.add_argument_group("early stopping")
@@ -775,12 +873,19 @@ def _write_report(
         f"arm={args.arm}",
         f"seed={args.seed}",
         f"geometry={'fan_fill' if not args.no_fan_fill else 'earcut'}",
+        f"control_points={args.control_points}",
         f"target1={args.target1}",
         f"target2={args.target2}",
         f"steps={args.steps}",
         f"eval_interval={args.eval_interval}",
         f"render_every={args.render_every}",
         f"render_every_scale={args.render_every_scale}",
+        f"render_oblique={args.render_oblique}"
+        + (
+            f" (azimuth={args.oblique_azimuth:g}, elevation={args.oblique_elevation:g}, "
+            f"radius={args.oblique_radius:g})"
+            if args.render_oblique else ""
+        ),
         f"n_patches={args.n_patches}",
         f"swept_volume_resolution={args.swept_resolution}",
         f"swept_volume_spawn_fraction={args.swept_spawn_fraction:.6g}",
@@ -934,7 +1039,7 @@ def main() -> None:
 
     from core.initialization import initialize_patches
     from core.optimizer import SceneOptimizer, THETA_CAMERA_MARGIN
-    from core.patch import set_fan_fill
+    from core.patch import set_fan_fill, set_n_control_points
     from core.swept_volume import SweptVolume
 
     # 0 removes the constraint entirely: constrain_theta_to_camera_band and
@@ -945,6 +1050,23 @@ def main() -> None:
     # Before any patch is constructed, so every mesh built in this process uses
     # the same triangulation.
     set_fan_fill(not args.no_fan_fill)
+    set_n_control_points(args.control_points)
+    if args.no_fan_fill:
+        # _triangulate_outline_xy falls back to a fan when the library is
+        # missing, which would make this arm a silent duplicate of the fan-fill
+        # one while still reporting geometry=earcut.
+        try:
+            import mapbox_earcut  # noqa: F401
+        except ImportError as exc:
+            raise SystemExit(
+                "--no-fan-fill needs mapbox-earcut, which is not importable in "
+                "this environment; refusing to fall back to fan fill."
+            ) from exc
+
+    oblique_camera = (
+        _make_oblique_camera(args.oblique_azimuth, args.oblique_elevation, args.oblique_radius)
+        if args.render_oblique else None
+    )
 
     setup_started = time.perf_counter()
 
@@ -1061,6 +1183,14 @@ def main() -> None:
                 snapshot_dir / f"step{step_index:05d}_view1.png",
                 snapshot_dir / f"step{step_index:05d}_view2.png",
             )
+            if oblique_camera is not None:
+                _export_oblique(
+                    optimizer,
+                    oblique_camera,
+                    args.render_every_scale,
+                    snapshot_dir / f"step{step_index:05d}_oblique.png",
+                    snapshot_dir / f"step{step_index:05d}_oblique_depth.png",
+                )
 
         is_eval = (
             step_index % args.eval_interval == 0
@@ -1250,6 +1380,17 @@ def main() -> None:
         view1_path = output_dir / f"{stem}_view1.png"
         view2_path = output_dir / f"{stem}_view2.png"
         _export_views(optimizer, cameras, args.render_scale, view1_path, view2_path)
+        if oblique_camera is not None:
+            # "oblique" / "obliquedepth" keep the last underscore-separated
+            # token unique, which is what submit_negspace's collect step names
+            # the copied views by.
+            _export_oblique(
+                optimizer,
+                oblique_camera,
+                args.render_scale,
+                output_dir / f"{stem}_oblique.png",
+                output_dir / f"{stem}_obliquedepth.png",
+            )
         print(f"[Final] views exported to {view1_path.name}, {view2_path.name}", flush=True)
 
     if args.render_every > 0:

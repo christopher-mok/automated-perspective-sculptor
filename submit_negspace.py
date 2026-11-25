@@ -482,6 +482,16 @@ def _parse_args() -> argparse.Namespace:
                         help="Override run_final's steps-between-SRD-rewrites "
                              "(default 50). Passed through only when set.")
     parser.add_argument("--render-scale", type=int, default=4)
+    parser.add_argument("--render-oblique", action="store_true",
+                        help="Pass run_final's --render-oblique: a depth-shaded "
+                             "45-degree view plus depth map beside every frame.")
+    parser.add_argument("--no-fan-fill", action="store_true",
+                        help="Pass run_final's --no-fan-fill: mapbox-earcut "
+                             "triangulation instead of the default vertex-0 fan. "
+                             "Needs mapbox-earcut importable in the job's env.")
+    parser.add_argument("--control-points", type=int, default=None,
+                        help="Override run_final's control points per patch "
+                             "(default 5). Passed through only when set.")
     parser.add_argument("--max-hours", type=float, default=23.0)
     parser.add_argument("--device", default="cuda")
 
@@ -556,6 +566,12 @@ def _build_jobs(args: argparse.Namespace, sweep_dir: Path) -> list[dict]:
                     ]
                     if args.srd_interval is not None:
                         command += ["--srd-interval", str(args.srd_interval)]
+                    if args.render_oblique:
+                        command += ["--render-oblique"]
+                    if args.no_fan_fill:
+                        command += ["--no-fan-fill"]
+                    if args.control_points is not None:
+                        command += ["--control-points", str(args.control_points)]
                     view_loss = cfg.get("view_loss", "mse")
                     if view_loss == "mse":
                         command += [

@@ -53,6 +53,35 @@ def set_fan_fill(enabled: bool) -> None:
     _FORCE_FAN_FILL = bool(enabled)
 
 
+def set_n_control_points(n: int) -> None:
+    """Set how many control points every Patch outline has (default 5).
+
+    Set before any patch is built: the count is a property of the run, and
+    Patch.__init__ rejects any outline with a different number of nodes.
+    """
+    n = int(n)
+    if n < 5:
+        raise ValueError(f"Patches need at least 5 control points, got {n}")
+    Patch.N_CONTROL_POINTS = n
+
+
+def _densify_outline(points: list[np.ndarray], n: int) -> list[np.ndarray]:
+    """Grow a closed polygon to ``n`` nodes by bisecting its longest edge.
+
+    Shape-preserving: every inserted node lies on an existing edge. A polygon
+    that already has ``n`` nodes is returned unchanged.
+    """
+    pts = [np.asarray(pt, dtype=np.float32) for pt in points]
+    while len(pts) < n:
+        lengths = [
+            float(np.linalg.norm(pts[(i + 1) % len(pts)] - pts[i]))
+            for i in range(len(pts))
+        ]
+        i = int(np.argmax(lengths))
+        pts.insert(i + 1, 0.5 * (pts[i] + pts[(i + 1) % len(pts)]))
+    return pts
+
+
 def fan_fill_enabled() -> bool:
     """True when fan fill has been forced with set_fan_fill."""
     return _FORCE_FAN_FILL
@@ -386,6 +415,11 @@ class Patch(nn.Module):
                 np.array([max_x, min_y + 0.2 * height], dtype=np.float32),
                 np.array([right_mid_x, upper_y], dtype=np.float32),
             ]
+
+            # The child outlines above are five-node shapes; with more control
+            # points per patch, bisect their longest edges up to the count.
+            left_points = _densify_outline(left_points, self.N_CONTROL_POINTS)
+            right_points = _densify_outline(right_points, self.N_CONTROL_POINTS)
 
             albedo = self.albedo.detach().cpu().numpy().tolist()
             center = self.center.detach().cpu().numpy().tolist()
